@@ -1,0 +1,198 @@
+{
+  "name": "muse-history-sidebar",
+  "displayName": "Muse 历史记录",
+  "description": "按文件夹浏览本机 Muse 历史记录，在原工作目录打开会话终端。",
+  "publisher": "AlexWonton",
+  "version": "0.1.1",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.144.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "extensionKind": [
+    "ui"
+  ],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
+  "main": "./out/src/extension.js",
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "可只读浏览；打开 Muse 终端需要受信任工作区。",
+      "restrictedConfigurations": [
+        "museHistory.enginePath"
+      ]
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "test": "npm run compile && node --test out/test/backend*.js out/test/shared*.js out/test/ui*.js",
+    "test:extension": "npm run compile && node test/run-extension.cjs",
+    "vscode:prepublish": "npm run compile",
+    "package": "vsce package --target win32-x64 --allow-missing-repository"
+  },
+  "contributes": {
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "museHistory",
+          "title": "Muse 历史记录",
+          "icon": "media/muse.svg"
+        }
+      ]
+    },
+    "views": {
+      "museHistory": [
+        {
+          "id": "museHistory.sessions",
+          "name": "历史记录",
+          "icon": "media/muse.svg"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "museHistory.refresh",
+        "title": "Muse：刷新历史",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "museHistory.search",
+        "title": "Muse：搜索标题或文件夹",
+        "icon": "$(search)"
+      },
+      {
+        "command": "museHistory.filter",
+        "title": "Muse：筛选归档状态",
+        "icon": "$(filter)"
+      },
+      {
+        "command": "museHistory.chooseEngine",
+        "title": "Muse：选择引擎",
+        "icon": "$(gear)"
+      },
+      {
+        "command": "museHistory.open",
+        "title": "Muse：打开会话终端"
+      },
+      {
+        "command": "museHistory.preview",
+        "title": "Muse：只读预览"
+      },
+      {
+        "command": "museHistory.openParent",
+        "title": "Muse：打开父主会话终端"
+      },
+      {
+        "command": "museHistory.archive",
+        "title": "Muse：归档"
+      },
+      {
+        "command": "museHistory.unarchive",
+        "title": "Muse：取消独立归档"
+      },
+      {
+        "command": "museHistory.recycle",
+        "title": "Muse：移到系统回收站"
+      }
+    ],
+    "menus": {
+      "view/title": [
+        {
+          "command": "museHistory.refresh",
+          "when": "view == museHistory.sessions",
+          "group": "navigation@1"
+        },
+        {
+          "command": "museHistory.search",
+          "when": "view == museHistory.sessions",
+          "group": "navigation@2"
+        },
+        {
+          "command": "museHistory.filter",
+          "when": "view == museHistory.sessions",
+          "group": "navigation@3"
+        },
+        {
+          "command": "museHistory.chooseEngine",
+          "when": "view == museHistory.sessions",
+          "group": "navigation@4"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "museHistory.preview",
+          "when": "view == museHistory.sessions && viewItem =~ /session/",
+          "group": "1_open@1"
+        },
+        {
+          "command": "museHistory.open",
+          "when": "view == museHistory.sessions && viewItem =~ /root/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "museHistory.openParent",
+          "when": "view == museHistory.sessions && viewItem =~ /child/",
+          "group": "1_open@2"
+        },
+        {
+          "command": "museHistory.archive",
+          "when": "view == museHistory.sessions && viewItem =~ /session/ && !(viewItem =~ /selfArchived/)",
+          "group": "2_manage@1"
+        },
+        {
+          "command": "museHistory.unarchive",
+          "when": "view == museHistory.sessions && viewItem =~ /selfArchived/",
+          "group": "2_manage@1"
+        },
+        {
+          "command": "museHistory.recycle",
+          "when": "view == museHistory.sessions && viewItem =~ /session/",
+          "group": "3_recycle"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Muse 历史记录",
+      "properties": {
+        "museHistory.enginePath": {
+          "type": "string",
+          "default": "",
+          "scope": "machine",
+          "description": "本机 Muse 原生可执行文件的绝对路径。留空自动发现。"
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "markdown-it": "15.0.3"
+  },
+  "devDependencies": {
+    "@types/vscode": "1.144.0",
+    "@types/node": "24.19.2",
+    "@types/markdown-it": "14.2.0",
+    "typescript": "7.0.2",
+    "@vscode/vsce": "4.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Great-us/muse-history-sidebar.git"
+  },
+  "homepage": "https://github.com/Great-us/muse-history-sidebar",
+  "bugs": {
+    "url": "https://github.com/Great-us/muse-history-sidebar/issues"
+  },
+  "author": "Great-us",
+  "keywords": [
+    "history",
+    "sessions",
+    "workspace",
+    "muse"
+  ]
+}

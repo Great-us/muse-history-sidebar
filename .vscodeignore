@@ -1,0 +1,11 @@
+src/**
+test/**
+native-recycle/**
+out/test/**
+**/*.map
+tsconfig.json
+package-lock.json
+*.vsix
+.test-sandbox/**
+work/**
+scripts/**

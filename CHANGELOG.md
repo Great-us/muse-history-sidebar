@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.1.3
+
+- Added an original folder-and-history app icon, a theme-aware activity bar icon, and a matching documentation logo.
+
 ## 0.1.2
 
 - Translated all extension-owned UI to English: activity bar and view titles, commands, menus, settings, tree descriptions and tooltips, preview pages (including `lang="en"`), notifications, warnings, error messages, and generated placeholders such as unindexed and sub-session titles.

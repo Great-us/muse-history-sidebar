@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" fill="none">
+  <title>Muse History Sidebar</title>
+  <desc>An original workspace-folder mark with a letter M and history clock.</desc>
+  <defs>
+    <linearGradient id="background" x1="68" y1="32" x2="456" y2="498" gradientUnits="userSpaceOnUse"><stop stop-color="#2D2332"/><stop offset="1" stop-color="#191720"/></linearGradient>
+    <linearGradient id="folder" x1="154" y1="128" x2="371" y2="386" gradientUnits="userSpaceOnUse"><stop stop-color="#FFD4A1"/><stop offset="1" stop-color="#FFAB77"/></linearGradient>
+  </defs>
+  <rect x="16" y="16" width="480" height="480" rx="108" fill="url(#background)"/>
+  <rect x="17" y="17" width="478" height="478" rx="107" stroke="white" stroke-opacity=".07" stroke-width="2"/>
+  <path d="M104 164C104 144 120 128 140 128H214C225 128 234 132 242 140L272 168H372C392 168 408 184 408 204V348C408 368 392 384 372 384H140C120 384 104 368 104 348Z" fill="url(#folder)"/>
+  <path d="M104 199H408" stroke="#2D2332" stroke-opacity=".12" stroke-width="3"/>
+  <path d="M158 316V226L222 282L286 226V316" stroke="#191720" stroke-width="26" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="366" cy="350" r="55" fill="#191720"/>
+  <circle cx="366" cy="350" r="43" stroke="#FFD4A1" stroke-width="11"/>
+  <path d="M366 327V351L382 361" stroke="#FFD4A1" stroke-width="11" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

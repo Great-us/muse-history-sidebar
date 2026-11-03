@@ -1,5 +1,7 @@
 # Muse History Sidebar
 
+<img src="media/icon.png" width="96" height="96" alt="Muse History Sidebar logo">
+
 Unofficial community VS Code extension for browsing and managing local Muse conversation history by workspace folder. This project is independently maintained and is not an official extension from the engine vendor.
 
 - Workspace folders, parent/child conversations, title/path search and paginated read-only previews.
@@ -34,7 +36,7 @@ Since 0.1.1: while Muse is running it may temporarily withhold session directori
 In the VS Code Extensions menu choose **Install from VSIX…** and select the delivered `.vsix`. The official CLI also works:
 
 ```powershell
-code --install-extension .\muse-history-sidebar-0.1.2-win32-x64.vsix
+code --install-extension .\muse-history-sidebar-0.1.3-win32-x64.vsix
 ```
 
 The engine is discovered automatically from the local Muse installation and PATH. When discovery fails, click the gear in the sidebar and select the native Muse `.exe`. The setting is `museHistory.enginePath`, machine-scoped. Remote VS Code windows do not start local Muse sessions; use terminal features in a local, trusted workspace.
@@ -55,7 +57,7 @@ npm test
 npm run package
 ```
 
-The default build output is `muse-history-sidebar-win32-x64-0.1.2.vsix`. Dependency versions are pinned by `package-lock.json`. `src/backend` uses Muse's official MSP interface and file metadata, `src/ui` provides the tree, preview and terminals, and `native-recycle` is the Windows recycle helper source. Packaging uses `MARKETPLACE.md` as the store README via `vsce package --readme-path MARKETPLACE.md`; this bilingual source README is excluded from the VSIX.
+The default build output is `muse-history-sidebar-win32-x64-0.1.3.vsix`. Dependency versions are pinned by `package-lock.json`. `src/backend` uses Muse's official MSP interface and file metadata, `src/ui` provides the tree, preview and terminals, and `native-recycle` is the Windows recycle helper source. Packaging uses `MARKETPLACE.md` as the store README via `vsce package --readme-path MARKETPLACE.md`; this bilingual source README is excluded from the VSIX.
 
 To rebuild the helper, install the Rust MSVC toolchain and Visual Studio C++ Build Tools, then run:
 
@@ -112,7 +114,7 @@ The store version uses the `AlexWonton` publisher, a different extension ID from
 在 VS Code 扩展菜单选择 **Install from VSIX… / 从 VSIX 安装…**，选中交付的 `.vsix`。也可使用官方 CLI：
 
 ```powershell
-code --install-extension .\muse-history-sidebar-0.1.2-win32-x64.vsix
+code --install-extension .\muse-history-sidebar-0.1.3-win32-x64.vsix
 ```
 
 引擎默认从本机 Muse 安装和 PATH 中发现。找不到时，点击侧边栏齿轮，选择 Muse 原生 `.exe`。设置项为 `museHistory.enginePath`，仅作用于本机。远程 VS Code 窗口不启动本机 Muse 会话；在本机受信任工作区使用终端功能。
@@ -133,7 +135,7 @@ npm test
 npm run package
 ```
 
-默认构建产物为 `muse-history-sidebar-win32-x64-0.1.2.vsix`。依赖版本由 `package-lock.json` 锁定。`src/backend` 使用 Muse 官方 MSP 接口和文件元数据，`src/ui` 提供树、预览和终端，`native-recycle` 是 Windows 回收助手源码。打包通过 `vsce package --readme-path MARKETPLACE.md` 以 `MARKETPLACE.md` 作为商店 README；本双语言源码 README 不会进入 VSIX。
+默认构建产物为 `muse-history-sidebar-win32-x64-0.1.3.vsix`。依赖版本由 `package-lock.json` 锁定。`src/backend` 使用 Muse 官方 MSP 接口和文件元数据，`src/ui` 提供树、预览和终端，`native-recycle` 是 Windows 回收助手源码。打包通过 `vsce package --readme-path MARKETPLACE.md` 以 `MARKETPLACE.md` 作为商店 README；本双语言源码 README 不会进入 VSIX。
 
 如需重新构建助手，先安装 Rust MSVC 工具链和 Visual Studio C++ Build Tools，再运行：
 

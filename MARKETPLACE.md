@@ -1,5 +1,7 @@
 # Muse History Sidebar
 
+<img src="media/icon.png" width="96" height="96" alt="Muse History Sidebar logo">
+
 Browse and manage the Muse conversation history on this machine, grouped by the original workspace folder, and resume main conversations in their original working directories.
 
 This is an unofficial community extension, independently maintained and not affiliated with the engine vendor. It contains no conversation data, account credentials, or recovery backups.

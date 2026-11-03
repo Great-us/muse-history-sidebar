@@ -37,18 +37,18 @@ export async function activate(context: vscode.ExtensionContext) {
   let inventory: CatalogInventory | undefined;
   let refreshing: Promise<CatalogInventory> | undefined;
   const updateDescription = () => {
-    view.description = `${tree.filter === 'active' ? '未归档' : tree.filter === 'archived' ? '已归档' : '全部'}${tree.query ? ` · ${tree.query}` : ''}`;
-    view.message = !inventory ? '正在读取本机 Muse 历史…' : tree.groups.length ? (inventory.warnings.length ? inventory.warnings.join('\n') : undefined) : '没有匹配的历史记录。可搜索、切换归档筛选或刷新。';
+    view.description = `${tree.filter === 'active' ? 'Unarchived' : tree.filter === 'archived' ? 'Archived' : 'All'}${tree.query ? ` · ${tree.query}` : ''}`;
+    view.message = !inventory ? 'Reading local Muse history…' : tree.groups.length ? (inventory.warnings.length ? inventory.warnings.join('\n') : undefined) : 'No matching history. Search, change the archive filter, or refresh.';
   };
   const refresh = (): Promise<CatalogInventory> => {
     if (refreshing) return refreshing;
     refreshing = catalog.refresh().then(async result => { inventory = result; await terminals.reconnect(result.sessions); tree.update(await terminals.withOwnedWorkspaces(result.sessions)); updateDescription(); return result; }).catch(error => {
-      view.message = `读取失败：${error instanceof Error ? error.message : String(error)}。请检查引擎路径后刷新。`;
+      view.message = `Read failed: ${error instanceof Error ? error.message : String(error)}. Check the engine path, then refresh.`;
       throw error;
     }).finally(() => { refreshing = undefined; });
     return refreshing;
   };
-  const report = (error: unknown) => { void vscode.window.showErrorMessage(`Muse 历史：${error instanceof Error ? error.message : String(error)}`); };
+  const report = (error: unknown) => { void vscode.window.showErrorMessage(`Muse History: ${error instanceof Error ? error.message : String(error)}`); };
   const register = (name: string, handler: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(`museHistory.${name}`, async (...args) => { try { return await handler(...args); } catch (error) { report(error); return undefined; } }));
   const setArchived = async (value: HistoryNode | string, archived: boolean) => {
     const row = tree.row(value);
@@ -60,15 +60,15 @@ export async function activate(context: vscode.ExtensionContext) {
   };
   register('refresh', refresh);
   register('search', async () => {
-    const query = await vscode.window.showInputBox({ title: '搜索 Muse 历史', prompt: '输入标题或文件夹路径；清空显示全部。匹配子记录时保留父级。', value: tree.query });
+    const query = await vscode.window.showInputBox({ title: 'Search Muse History', prompt: 'Match titles or folder paths; empty shows all. Parents are kept when a child matches.', value: tree.query });
     if (query !== undefined) { tree.query = query.trim(); tree.update(); updateDescription(); }
   });
   register('filter', async () => {
-    const choice = await vscode.window.showQuickPick([{ label: '未归档', value: 'active' as const }, { label: '已归档（包含必要父级）', value: 'archived' as const }, { label: '全部', value: 'all' as const }], { title: 'Muse 历史 · 归档筛选' });
+    const choice = await vscode.window.showQuickPick([{ label: 'Unarchived', value: 'active' as const }, { label: 'Archived (required parents included)', value: 'archived' as const }, { label: 'All', value: 'all' as const }], { title: 'Muse History · Archive Filter' });
     if (choice) { tree.filter = choice.value; tree.update(); updateDescription(); }
   });
   register('chooseEngine', async () => {
-    const choice = await vscode.window.showOpenDialog({ title: '选择本机 Muse 原生引擎', canSelectFiles: true, canSelectFolders: false, canSelectMany: false, filters: { 'Windows 原生引擎': ['exe'] } });
+    const choice = await vscode.window.showOpenDialog({ title: 'Choose the local native Muse engine', canSelectFiles: true, canSelectFolders: false, canSelectMany: false, filters: { 'Windows native engine': ['exe'] } });
     if (choice?.[0]) {
       await catalog.setEnginePath(choice[0].fsPath);
       await vscode.workspace.getConfiguration('museHistory').update('enginePath', choice[0].fsPath, vscode.ConfigurationTarget.Global);
@@ -94,10 +94,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const descendants = tree.forest.treeById.get(row.session_id)?.descendants ?? [];
     const scope = [row, ...descendants];
     const inUse = terminals.inUseIds();
-    if (scope.some(item => inUse.has(item.session_id))) throw new Error('此会话或其子记录的 Muse 终端仍打开。请先关闭对应终端。');
+    if (scope.some(item => inUse.has(item.session_id))) throw new Error('A Muse terminal for this session or one of its child records is still open. Close that terminal first.');
     if (!confirmed) {
-      const choice = await vscode.window.showWarningMessage(`将“${row.title || row.session_id}”及其 ${descendants.length} 条子记录移到 Windows 回收站？`, { modal: true, detail: `范围：${row.session_id}\n${scope.map(item => item.title || item.session_id).join('\n')}\n可在系统回收站恢复。不会永久删除。` }, '移到回收站');
-      if (choice !== '移到回收站') return undefined;
+      const choice = await vscode.window.showWarningMessage(`Move "${row.title || row.session_id}" and its ${descendants.length} child record(s) to the Windows Recycle Bin?`, { modal: true, detail: `Scope: ${row.session_id}\n${scope.map(item => item.title || item.session_id).join('\n')}\nRecoverable from the system Recycle Bin. Nothing is permanently deleted.` }, 'Move to Recycle Bin');
+      if (choice !== 'Move to Recycle Bin') return undefined;
     }
     const result = await catalog.recycle(row.session_id, inUse);
     if (result.status === 'recycled') {

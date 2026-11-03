@@ -100,17 +100,17 @@ export class SessionTerminals implements vscode.Disposable {
     }
   }
   async open(row: CatalogRow): Promise<vscode.Terminal> {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.session_id)) throw new Error('历史记录的会话 ID 不是有效 UUID。');
-    if (row.kind !== 'root' || row.parent_session_id) throw new Error('内部子记录仅支持预览。请使用“打开父主会话终端”。');
-    if (vscode.env.remoteName) throw new Error('这是本机 Muse 历史；请在本机 VS Code 窗口打开会话终端。');
-    if (!vscode.workspace.isTrusted) throw new Error('打开 Muse 终端需要受信任工作区。请先在 VS Code 中管理工作区信任。');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(row.session_id)) throw new Error('The history session ID is not a valid UUID.');
+    if (row.kind !== 'root' || row.parent_session_id) throw new Error('Internal child records support preview only. Use "Open Parent Main Session Terminal".');
+    if (vscode.env.remoteName) throw new Error('This is local Muse history; open session terminals in a local VS Code window.');
+    if (!vscode.workspace.isTrusted) throw new Error('Opening a Muse terminal requires a trusted workspace. Manage workspace trust in VS Code first.');
     const existing = this.terminals.get(row.session_id);
     if (existing && existing.exitStatus === undefined) { existing.show(); return existing; }
     await this.reconnect([row]);
     const restored = this.terminals.get(row.session_id);
     if (restored && restored.exitStatus === undefined) { restored.show(); return restored; }
     const unresolved = this.reconnectFailures.get(row.session_id);
-    if (unresolved) throw new Error(`无法确认重载后已有 Muse 终端的归属，已保留该终端。请直接使用原终端，或关闭它后重试。${unresolved}`);
+    if (unresolved) throw new Error(`Could not confirm ownership of an existing Muse terminal after reload; that terminal was kept. Use the original terminal directly, or close it and retry. ${unresolved}`);
     const pending = this.opening.get(row.session_id);
     if (pending) { const terminal = await pending; terminal.show(); return terminal; }
     const create = this.create(row);
@@ -118,9 +118,9 @@ export class SessionTerminals implements vscode.Disposable {
     try { return await create; } finally { this.opening.delete(row.session_id); }
   }
   private async create(row: CatalogRow): Promise<vscode.Terminal> {
-    if (row.workspace_source === 'own-terminal') throw new Error('此目录来自本扩展终端启动记录，只能切回已验证的存活终端。请刷新历史后再打开新终端。');
+    if (row.workspace_source === 'own-terminal') throw new Error('This directory comes from a terminal launch record of this extension and can only switch back to the verified live terminal. Refresh the history before opening a new terminal.');
     if (!row.workspace || !(await stat(row.workspace).catch(() => undefined))?.isDirectory()) {
-      throw new Error(`原工作目录不存在，无法安全打开终端：${row.workspace || '（记录未提供目录）'}`);
+      throw new Error(`The original working directory no longer exists; a terminal cannot be opened safely: ${row.workspace || '(no directory recorded)'}`);
     }
     const shellPath = await this.engine();
     const terminal = vscode.window.createTerminal({
@@ -138,15 +138,15 @@ export class SessionTerminals implements vscode.Disposable {
       const pid = await terminal.processId;
       if (pid !== undefined && terminal.exitStatus === undefined) {
         const identity = await terminalProcessIdentity(pid);
-        if (resolve(identity.executablePath).toLowerCase() !== resolve(shellPath).toLowerCase()) throw new Error('终端进程与所选 Muse 引擎不匹配。');
+        if (resolve(identity.executablePath).toLowerCase() !== resolve(shellPath).toLowerCase()) throw new Error('The terminal process does not match the selected Muse engine.');
         if (terminal.exitStatus === undefined && vscode.window.terminals.includes(terminal)) {
           this.receipts.set(row.session_id, { sessionId: row.session_id, pid, engine: shellPath, cwd: row.workspace, argv: [...(this.test?.extraArgs ?? []), 'resume', row.session_id], ...identity });
           this.verifiedReceipts.add(row.session_id);
           await this.state.update('terminalReceipts.v1', [...this.receipts.values()]);
         }
       }
-    } catch (error) { void vscode.window.showWarningMessage(`Muse 终端已打开，但无法保存重载后的切换凭据：${error instanceof Error ? error.message : String(error)}`); }
-    vscode.window.setStatusBarMessage('Muse 终端已打开，等待 Muse。若会话被其他窗口占用，请按 CLI 提示操作。', 6000);
+    } catch (error) { void vscode.window.showWarningMessage(`The Muse terminal opened, but its post-reload switching credential could not be saved: ${error instanceof Error ? error.message : String(error)}`); }
+    vscode.window.setStatusBarMessage('Muse terminal opened, waiting for Muse. If another window holds the session, follow the CLI prompt.', 6000);
     return terminal;
   }
   dispose(): void {

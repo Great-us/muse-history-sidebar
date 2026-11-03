@@ -1,9 +1,9 @@
 {
   "name": "muse-history-sidebar",
-  "displayName": "Muse 历史记录",
-  "description": "按文件夹浏览本机 Muse 历史记录，在原工作目录打开会话终端。",
+  "displayName": "Muse History Sidebar",
+  "description": "Browse local Muse history by workspace folder and open session terminals in their original working directories.",
   "publisher": "AlexWonton",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "license": "MIT",
   "engines": {
     "vscode": "^1.144.0"
@@ -21,7 +21,7 @@
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": "limited",
-      "description": "可只读浏览；打开 Muse 终端需要受信任工作区。",
+      "description": "Read-only browsing is available; opening a Muse terminal requires a trusted workspace.",
       "restrictedConfigurations": [
         "museHistory.enginePath"
       ]
@@ -35,14 +35,14 @@
     "test": "npm run compile && node --test out/test/backend*.js out/test/shared*.js out/test/ui*.js",
     "test:extension": "npm run compile && node test/run-extension.cjs",
     "vscode:prepublish": "npm run compile",
-    "package": "vsce package --target win32-x64 --allow-missing-repository"
+    "package": "vsce package --target win32-x64 --readme-path MARKETPLACE.md --allow-missing-repository"
   },
   "contributes": {
     "viewsContainers": {
       "activitybar": [
         {
           "id": "museHistory",
-          "title": "Muse 历史记录",
+          "title": "Muse History",
           "icon": "media/muse.svg"
         }
       ]
@@ -51,7 +51,7 @@
       "museHistory": [
         {
           "id": "museHistory.sessions",
-          "name": "历史记录",
+          "name": "History",
           "icon": "media/muse.svg"
         }
       ]
@@ -59,47 +59,47 @@
     "commands": [
       {
         "command": "museHistory.refresh",
-        "title": "Muse：刷新历史",
+        "title": "Muse: Refresh History",
         "icon": "$(refresh)"
       },
       {
         "command": "museHistory.search",
-        "title": "Muse：搜索标题或文件夹",
+        "title": "Muse: Search Titles or Folders",
         "icon": "$(search)"
       },
       {
         "command": "museHistory.filter",
-        "title": "Muse：筛选归档状态",
+        "title": "Muse: Filter by Archive Status",
         "icon": "$(filter)"
       },
       {
         "command": "museHistory.chooseEngine",
-        "title": "Muse：选择引擎",
+        "title": "Muse: Choose Engine",
         "icon": "$(gear)"
       },
       {
         "command": "museHistory.open",
-        "title": "Muse：打开会话终端"
+        "title": "Muse: Open Session Terminal"
       },
       {
         "command": "museHistory.preview",
-        "title": "Muse：只读预览"
+        "title": "Muse: Read-only Preview"
       },
       {
         "command": "museHistory.openParent",
-        "title": "Muse：打开父主会话终端"
+        "title": "Muse: Open Parent Main Session Terminal"
       },
       {
         "command": "museHistory.archive",
-        "title": "Muse：归档"
+        "title": "Muse: Archive"
       },
       {
         "command": "museHistory.unarchive",
-        "title": "Muse：取消独立归档"
+        "title": "Muse: Remove Independent Archive"
       },
       {
         "command": "museHistory.recycle",
-        "title": "Muse：移到系统回收站"
+        "title": "Muse: Move to System Recycle Bin"
       }
     ],
     "menus": {
@@ -159,13 +159,13 @@
       ]
     },
     "configuration": {
-      "title": "Muse 历史记录",
+      "title": "Muse History",
       "properties": {
         "museHistory.enginePath": {
           "type": "string",
           "default": "",
           "scope": "machine",
-          "description": "本机 Muse 原生可执行文件的绝对路径。留空自动发现。"
+          "description": "Absolute path to the local native Muse executable. Leave empty for automatic discovery."
         }
       }
     }

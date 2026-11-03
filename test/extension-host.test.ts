@@ -69,7 +69,7 @@ async function verifyOwnedWorkspaceDisplay(api: any, roots: CatalogRow[], box: s
     const node = grouped.forest.treeById.get(root.session_id)!;
     assert.equal(node.row.workspace, root.workspace);
     assert.equal(node.row.workspace_source, 'own-terminal');
-    assert.match(String(grouped.getTreeItem({ type: 'session', tree: node }).tooltip), /目录来自本扩展终端启动记录/);
+    assert.match(String(grouped.getTreeItem({ type: 'session', tree: node }).tooltip), /Directory from a terminal launch record of this extension/);
     for (const child of node.descendants) { assert.equal(child.workspace, root.workspace); assert.equal(child.workspace_source, 'own-terminal'); }
     assert.ok(grouped.groups.some(group => group.path?.replace(/\\/g, '/') === root.workspace.replace(/\\/g, '/')));
   }
@@ -133,7 +133,7 @@ export async function run(): Promise<void> {
     const unknown = new SessionTerminals(api.globalState.get('terminalOwner'), () => Promise.resolve(inventory.engine_path), api.globalState, { env: config.env, extraArgs: config.extraArgs });
     try {
       identityModule.terminalProcessIdentity = async () => { throw new Error('Synthetic CIM unavailable'); };
-      await assert.rejects(unknown.open(a), /无法确认重载后已有 Muse 终端/);
+      await assert.rejects(unknown.open(a), /Could not confirm ownership of an existing Muse terminal/);
       assert.equal((await unknown.withOwnedWorkspaces([{ ...a, workspace: '', workspace_source: undefined }]))[0].workspace_source, undefined);
       assert.equal(vscode.window.terminals.length, before, 'unknown native identity must not create a duplicate');
     } finally { identityModule.terminalProcessIdentity = readIdentity; unknown.dispose(); }
@@ -219,7 +219,7 @@ export async function run(): Promise<void> {
   ta.dispose();
   await aClosed;
   const terminalCountAfterClose = vscode.window.terminals.length;
-  await assert.rejects(api.terminals.open(inferred.find(row => row.session_id === a.session_id)), /目录来自本扩展终端启动记录/);
+  await assert.rejects(api.terminals.open(inferred.find(row => row.session_id === a.session_id)), /terminal launch record of this extension/);
   assert.equal(vscode.window.terminals.length, terminalCountAfterClose, 'a stale inferred row cannot create a new terminal');
   await automaticallyRefreshed;
   assert.equal(api.tree.row(a.session_id).workspace_source, undefined, 'after close, refresh uses official metadata again');
@@ -230,14 +230,14 @@ export async function run(): Promise<void> {
   evidence.aReopenedEvent = await reopenedEvent;
   evidence.closeReopen = true;
   await assert.rejects(api.terminals.open({ ...a, session_id: '--help' }), /UUID/);
-  await assert.rejects(api.terminals.open({ ...a, workspace: join(box, 'missing-workspace'), session_id: '11111111-1111-4111-8111-111111111111' }), /原工作目录不存在/);
+  await assert.rejects(api.terminals.open({ ...a, workspace: join(box, 'missing-workspace'), session_id: '11111111-1111-4111-8111-111111111111' }), /original working directory no longer exists/);
   const child = inventory.sessions.find((row: CatalogRow) => row.parent_session_id === a.session_id);
   if (child) {
     const preview = await vscode.commands.executeCommand<HistoryPreview>('museHistory.preview', child.session_id);
     assert.ok(preview && preview.entries.length);
-    assert.match(preview.html(), /只读预览/);
+    assert.match(preview.html(), /Read-only preview/);
     assert.equal(api.tree.parentRoot(child).session_id, a.session_id);
-    await assert.rejects(api.terminals.open(child), /内部子记录/);
+    await assert.rejects(api.terminals.open(child), /Internal child record/);
     evidence.childPreviewAndExplicitParent = true;
   }
   const paged = new HistoryPreview(a, extension.extensionUri, async (_id, cursor) => ({ items: Array.from({ length: 1205 }, (_, i) => ({ itemId: `${cursor ?? 'first'}-${i}`, kind: 'agentMessage', text: `Paged message ${cursor ?? 'first'} ${i}`, recordedAt: new Date(i + (cursor ? 1205 : 0)).toISOString() })), next_cursor: cursor ? null : 'second' }));

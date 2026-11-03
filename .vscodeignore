@@ -9,3 +9,4 @@ package-lock.json
 .test-sandbox/**
 work/**
 scripts/**
+README.md

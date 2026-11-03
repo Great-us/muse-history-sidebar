@@ -21,7 +21,7 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
       const item = new vscode.TreeItem(node.group.label, vscode.TreeItemCollapsibleState.Expanded);
       item.id = `folder:${node.group.key}`;
       item.description = `${node.group.trees.length}`;
-      item.tooltip = (node.group.path ?? '记录未提供工作目录') + (node.group.trees.some(tree => tree.row.workspace_source === 'own-terminal') ? '\n目录来自本扩展终端启动记录' : '');
+      item.tooltip = (node.group.path ?? 'No working directory recorded') + (node.group.trees.some(tree => tree.row.workspace_source === 'own-terminal') ? '\nDirectory from a terminal launch record of this extension' : '');
       item.iconPath = new vscode.ThemeIcon('folder');
       return item;
     }
@@ -29,11 +29,11 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
     const child = row.kind !== 'root' || Boolean(row.parent_session_id);
     const item = new vscode.TreeItem(row.title || row.session_id, children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     item.id = row.session_id;
-    item.description = [row.session_id.slice(-12), child ? '子记录 · 预览' : '', archived ? '已归档' : '', contextOnly ? '包含归档子记录' : '', row.running ? '运行中' : '', row.workspace_source === 'own-terminal' ? '目录来自启动记录' : ''].filter(Boolean).join(' · ');
-    item.tooltip = `${row.title}\n${row.workspace || '目录未知'}\n${row.session_id}${row.workspace_source === 'own-terminal' ? '\n目录来自本扩展终端启动记录' : ''}${child ? '\n内部子记录不能单独恢复；可从菜单打开父主会话终端。' : row.workspace_source === 'own-terminal' ? '\n点击切回已验证的原终端；此目录不能用来另开会话。' : '\n点击打开或聚焦本会话终端。'}`;
+    item.description = [row.session_id.slice(-12), child ? 'Child · Preview' : '', archived ? 'Archived' : '', contextOnly ? 'Contains archived children' : '', row.running ? 'Running' : '', row.workspace_source === 'own-terminal' ? 'Directory from launch record' : ''].filter(Boolean).join(' · ');
+    item.tooltip = `${row.title}\n${row.workspace || 'Directory unknown'}\n${row.session_id}${row.workspace_source === 'own-terminal' ? '\nDirectory from a terminal launch record of this extension' : ''}${child ? '\nInternal child records cannot be resumed on their own; open the parent main session terminal from the menu.' : row.workspace_source === 'own-terminal' ? '\nClick to switch back to the verified original terminal; this directory must not start another session.' : '\nClick to open or focus this session terminal.'}`;
     item.contextValue = `session-${child ? 'child' : 'root'}${this.archiveIds().includes(row.session_id) ? '-selfArchived' : ''}`;
     item.iconPath = new vscode.ThemeIcon(child ? 'references' : archived ? 'archive' : 'comment-discussion');
-    item.command = { command: child ? 'museHistory.preview' : 'museHistory.open', title: child ? '只读预览' : '打开会话终端', arguments: [node] };
+    item.command = { command: child ? 'museHistory.preview' : 'museHistory.open', title: child ? 'Read-only Preview' : 'Open Session Terminal', arguments: [node] };
     return item;
   }
   getChildren(node?: HistoryNode): HistoryNode[] {
@@ -42,17 +42,17 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
   }
   row(value: HistoryNode | string): CatalogRow {
     const row = typeof value === 'string' ? this.forest.treeById.get(value)?.row : value?.type === 'session' ? value.tree.row : undefined;
-    if (!row) throw new Error('请从 Muse 历史记录中选择会话。');
+    if (!row) throw new Error('Select a session from the Muse history list.');
     return row;
   }
   parentRoot(row: CatalogRow): CatalogRow {
     let current = row;
     while (current.parent_session_id) {
       const parent = this.forest.treeById.get(current.parent_session_id)?.row;
-      if (!parent) throw new Error('找不到此内部记录的父主会话。');
+      if (!parent) throw new Error('The parent main session of this internal record was not found.');
       current = parent;
     }
-    if (current.kind !== 'root') throw new Error('此内部记录没有可恢复的父主会话。');
+    if (current.kind !== 'root') throw new Error('This internal record has no parent main session to resume.');
     return current;
   }
   dispose(): void { this.changed.dispose(); }

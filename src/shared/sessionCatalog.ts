@@ -1,5 +1,5 @@
 /**
- * Pure selection logic for the session catalog (历史管理器).
+ * Pure selection logic for the session catalog (history manager).
  *
  * The backend serves one flat inventory of every Muse session found on the
  * machine. This module folds that list into the shape the panel renders —
@@ -95,7 +95,7 @@ export interface CatalogForest {
 export interface CatalogGroup {
   /** pathKey of the workspace; "" is the uncategorized group. */
   key: string;
-  /** Folder name for the header, "未分类" for the uncategorized group. */
+  /** Folder name for the header, "Uncategorized" for the uncategorized group. */
   label: string;
   /** Cleaned full workspace path, null for the uncategorized group. */
   path: string | null;
@@ -235,10 +235,10 @@ function directoryName(path: string): string {
  *
  * Archive semantics (one rule at every depth): archiving a row archives its
  * whole subtree — an ancestor's archive state covers its family.
- * - 全部: every row shows, each badged with its effective archive state.
- * - 未归档: effectively archived rows (and their subtrees) are pruned; an
+ * - All: every row shows, each badged with its effective archive state.
+ * - Unarchived: effectively archived rows (and their subtrees) are pruned; an
  *   independently archived child leaves its parent visible without it.
- * - 已归档: effectively archived rows show wherever they sit, kept under the
+ * - Archived: effectively archived rows show wherever they sit, kept under the
  *   ancestors needed to place them. Those ancestors are context only and are
  *   never marked archived themselves, so an independently archived child is
  *   always findable here and restorable in place.
@@ -295,7 +295,7 @@ export function buildCatalogGroups(
       const path = workspace === "" ? null : displayPath(workspace);
       group = {
         key,
-        label: path === null ? "未分类" : directoryName(path),
+        label: path === null ? "Uncategorized" : directoryName(path),
         path,
         trees: [],
         latestAt: 0,

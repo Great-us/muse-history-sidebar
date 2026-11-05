@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.1
+
+- **Archive moves the session folder** into `~/.local/share/muse/archive/` (same yyyy/mm/dd path, with a small `<id>.archive.json`); Muse no longer lists it. **Unarchive** moves it back. Only main sessions can be archived; sub-agent records move with them. The old hide-only archive flags are dropped on upgrade.
+- **Archived view**: Unarchive, Delete (to the Windows Recycle Bin), **Open Archive Folder** and **Empty Archive** (moves every archived session to the Recycle Bin after a confirmation). The archive filter in History was removed.
+- Delete is labelled **Delete (Move to Windows Recycle Bin)**; the extension keeps no other copy, and Windows asks before permanently deleting anything it cannot recycle.
+
 ## 0.2.0
 
 - **Static sidebar, refresh on demand.** History is read only when you press **Refresh** (or run an action that needs the engine, such as Move to Recycle Bin). There is no file watcher, timer, focus or visibility refresh, and no automatic refresh after a terminal closes. The view header shows when it was last refreshed.

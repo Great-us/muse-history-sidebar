@@ -185,17 +185,21 @@ export async function run(): Promise<void> {
     return;
   }
   if (phase === 'persistence') {
-    assert.ok(api.archives().includes(a.session_id), 'archive globalState persists across real host restarts');
-    const archivedGroup = api.tree.groups.find((group: any) => group.trees.some((tree: any) => tree.row.session_id === a.session_id));
-    assert.equal(archivedGroup, undefined, 'active view excludes archived root after restart');
-    assert.ok(api.archivedTree.groups.some((group: any) => group.trees.some((tree: any) => tree.row.session_id === a.session_id)), 'Archived view lists the archived root after restart');
-    evidence.archivePersistence = true;
+    assert.ok(api.archives().includes(a.session_id) && api.archives().includes(b.session_id), 'archived folders persist across real host restarts');
+    assert.equal(api.tree.forest.treeById.has(a.session_id), false, 'History excludes archived A after restart');
     assert.equal(api.names()[b.session_id], 'Renamed B persists', 'display name persists across real host restarts');
-    assert.equal(api.tree.row(b.session_id).title, 'Renamed B persists');
+    assert.equal(api.archivedTree.row(b.session_id).title, 'Renamed B persists');
+    evidence.archivePersistence = true;
+    for (const id of [a.session_id, b.session_id]) {
+      const back = await api.unarchive(id);
+      assert.equal(back.status, 'unarchived', back.message);
+      assert.ok(api.tree.forest.treeById.has(id), 'unarchived session is back in History');
+    }
+    assert.deepEqual(api.archives(), []);
     await api.rename(b.session_id, '');
     assert.equal(api.tree.row(b.session_id).original_title, undefined);
     evidence.renamePersistence = true;
-    await api.setArchived(a.session_id, false);
+    evidence.unarchiveMovesBack = true;
     await writeFile(join(box, `${phase}-evidence.json`), JSON.stringify(evidence, null, 2));
     console.log('Muse history persistence smoke passed');
     return;
@@ -288,47 +292,51 @@ export async function run(): Promise<void> {
   assert.match(paged.html(), /second 1204/);
   evidence.previewPagination = { loaded: paged.entries.length, exhausted: true };
   paged.panel.dispose();
-  await api.setArchived(a.session_id, true);
-  if (child) { await api.setArchived(child.session_id, true); await api.setArchived(a.session_id, false); assert.ok(api.archives().includes(child.session_id)); await api.setArchived(a.session_id, true); }
-  const originalRecycle = api.catalog.recycle;
-  await api.setArchived(b.session_id, true);
-  // Archived view: archived sessions are listed there directly and open like any other row.
-  const archivedNode = api.archivedTree.getChildren().flatMap((folder: any) => api.archivedTree.getChildren(folder)).find((node: any) => node.tree.row.session_id === b.session_id);
-  assert.ok(archivedNode, 'Archived view lists archived root B');
-  assert.equal(api.tree.groups.some((group: any) => group.trees.some((tree: any) => tree.row.session_id === b.session_id)), false, 'History (unarchived) hides B');
-  const archivedItem = api.archivedTree.getTreeItem(archivedNode);
-  assert.equal(archivedItem.command.command, 'museHistory.open');
-  assert.equal(await vscode.commands.executeCommand<vscode.Terminal>(archivedItem.command.command, ...archivedItem.command.arguments), tb, 'clicking B in Archived switches to its live terminal');
-  assert.match(String(archivedItem.contextValue), /selfArchived/);
-  evidence.archivedViewDirectAccess = true;
+  // Archive moves folders: refused while this extension's terminal holds the session, and never for a child record.
+  await assert.rejects(api.archive(b.session_id), /terminal/i);
+  if (child) await assert.rejects(api.archive(child.session_id), /Only main sessions/);
   // Rename: local display name, searchable by both names, restorable, independent of the engine title.
   const engineTitleB = api.tree.row(b.session_id).title;
   assert.equal(await api.rename(b.session_id, '  Renamed   B persists '), 'Renamed B persists');
   assert.equal(api.tree.row(b.session_id).title, 'Renamed B persists');
   assert.equal(api.tree.row(b.session_id).original_title, engineTitleB);
-  assert.equal(api.archivedTree.row(b.session_id).title, 'Renamed B persists', 'Archived view shows the display name');
-  api.archivedTree.query = 'renamed b';
-  api.archivedTree.update();
-  assert.equal(api.archivedTree.groups.length, 1, 'search finds the display name');
-  api.archivedTree.query = engineTitleB;
-  api.archivedTree.update();
-  assert.equal(api.archivedTree.groups.length, 1, 'search still finds the engine title');
-  api.archivedTree.query = '';
-  api.archivedTree.update();
-  assert.match(String(api.archivedTree.getTreeItem({ type: 'session', tree: api.archivedTree.forest.treeById.get(b.session_id) }).tooltip), /Muse title:/);
+  api.tree.query = 'renamed b';
+  api.tree.update();
+  assert.equal(api.tree.groups.length, 1, 'search finds the display name');
+  api.tree.query = engineTitleB;
+  api.tree.update();
+  assert.equal(api.tree.groups.length, 1, 'search still finds the engine title');
+  api.tree.query = '';
+  api.tree.update();
   await api.rename(a.session_id, 'Temporary A');
   await api.rename(a.session_id, '');
   assert.equal(api.tree.row(a.session_id).original_title, undefined, 'empty name restores the engine title');
   evidence.rename = { engineTitleB, displayName: api.tree.row(b.session_id).title };
-  const originalArchives = [...api.archives()];
-  api.catalog.recycle = async () => ({ status: 'partial', message: 'Synthetic cold verification partial', recycled_session_ids: [b.session_id] });
-  // Close owned synthetic terminals before mutation fixture; sentinel is deliberately untouched.
+  // Close owned synthetic terminals before mutation fixtures; sentinel is deliberately untouched.
   for (const terminal of [reopened, tb]) { const closed = event(vscode.window.onDidCloseTerminal, value => value === terminal); terminal.dispose(); await closed; }
+  const originalRecycle = api.catalog.recycle;
+  api.catalog.recycle = async () => ({ status: 'partial', message: 'Synthetic cold verification partial', recycled_session_ids: [b.session_id] });
   await api.recycle(b.session_id, true);
-  assert.deepEqual(api.archives(), originalArchives, 'partial outcome must not purge archive ids');
+  assert.equal(api.names()[b.session_id], 'Renamed B persists', 'partial outcome must not purge local names');
   api.catalog.recycle = originalRecycle;
+  evidence.partialKeepsNames = true;
+  // Archive A and B: their folders move into the archive folder; History no longer lists them.
+  for (const row of [a, b]) {
+    const result = await api.archive(row.session_id);
+    assert.equal(result.status, 'archived', result.message);
+    assert.ok(existsSync(join(result.location, 'session.jsonl')), 'folder is in the archive folder');
+    assert.equal(existsSync(join(row.log_path, '..')), false, 'folder left Muse sessions');
+  }
+  assert.deepEqual([...api.archives()].sort(), [a.session_id, b.session_id].sort());
+  assert.equal(api.tree.forest.treeById.has(b.session_id), false, 'History no longer lists B');
+  const archivedNode = api.archivedTree.getChildren().flatMap((folder: any) => api.archivedTree.getChildren(folder)).find((node: any) => node.tree.row.session_id === b.session_id);
+  assert.ok(archivedNode, 'Archived view lists B');
+  const archivedItem = api.archivedTree.getTreeItem(archivedNode);
+  assert.match(String(archivedItem.contextValue), /archivedEntry/);
+  assert.equal(archivedItem.command, undefined, 'archived rows cannot be opened until unarchived');
+  assert.equal(archivedItem.label, 'Renamed B persists', 'Archived view shows the display name');
   assert.ok(vscode.window.terminals.includes(sentinel));
-  evidence.partialKeepsArchives = true;
+  evidence.archiveMovesFolders = true;
   await verifyStaticRefresh(api, box, evidence);
   sentinel.dispose();
   for (const preview of api.previews.values()) preview.panel.dispose();

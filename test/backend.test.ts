@@ -2,13 +2,24 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { mkdir, mkdtemp, writeFile, rm, symlink, copyFile, readdir } from "node:fs/promises";
 import path from "node:path";
+import os from "node:os";
+import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
-import { CatalogService, recycleScope, requireSessionId, verifyRecycled } from "../src/backend/catalogService";
+import { ARCHIVE_META_SUFFIX, CatalogService, listArchivedSessions, recycleScope, relativeSessionPath, requireSessionId, verifyRecycled } from "../src/backend/catalogService";
 import { museDataRoot, resolveEngine, validateEngine } from "../src/backend/engine";
 import { buildInventoryRows, completeRootMetadata, listAll, readCursor, scanDisk } from "../src/backend/inventory";
 import { MspError, StdioMspHost, validateInitialize } from "../src/backend/mspHost";
 import type { CatalogRow } from "../src/shared/sessionCatalog";
+
+/**
+ * Real Recycle Bin tests need short paths: Windows cannot recycle items whose
+ * full path exceeds MAX_PATH (sub-agent folders nest deeply) and then asks to
+ * delete permanently instead, which the helper reports as unverified.
+ */
+async function shortFixture(): Promise<string> {
+  return mkdtemp(path.join(os.tmpdir(), "mhs-"));
+}
 
 async function fixture(): Promise<string> {
   await mkdir(path.join(process.cwd(), "work", "backend-tests"), { recursive: true });
@@ -317,8 +328,94 @@ test("resource use: no engine process or temp folder survives a refresh or a pre
   } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });
 
-test("actual recoverable recycle uses native helper then strict cold absence verification", { skip: !process.env.MUSE_TEST_ENGINE || process.env.MUSE_TEST_RECYCLE !== "1" }, async () => {
+test("archive paths stay inside the sessions folder and archived rows come from metadata files", async () => {
   const base = await fixture();
+  try {
+    const id = randomUUID();
+    const sessions = path.join(base, "sessions");
+    assert.equal(relativeSessionPath(sessions, path.join(sessions, "2026", "11", "05", id), id), path.join("2026", "11", "05", id));
+    assert.throws(() => relativeSessionPath(sessions, path.join(base, "elsewhere", id), id), /not inside/);
+    assert.throws(() => relativeSessionPath(sessions, path.join(sessions, "2026", "other"), id), /not inside/);
+    const archive = path.join(base, "archive");
+    const folder = path.join(archive, "2026", "11", "05", id);
+    await mkdir(folder, { recursive: true });
+    await writeFile(path.join(folder, "session.jsonl"), "metadata only\n");
+    await writeFile(`${folder}${ARCHIVE_META_SUFFIX}`, JSON.stringify({ version: 1, session_id: id, title: "Archived demo", workspace: "C:\\synthetic", created_at: null, updated_at: null, archived_at: "2026-11-05T00:00:00.000Z", relative: path.join("2026", "11", "05", id), sub_records: 2 }));
+    await writeFile(path.join(archive, "2026", "11", "05", `stray${ARCHIVE_META_SUFFIX}`), "{ not json");
+    const rows = await listArchivedSessions(archive);
+    assert.equal(rows.length, 1, "damaged or foreign metadata is ignored");
+    assert.equal(rows[0].session_id, id);
+    assert.equal(rows[0].archived_sub_records, 2);
+    assert.equal(rows[0].log_path, path.join(folder, "session.jsonl"));
+    await rm(folder, { recursive: true });
+    assert.deepEqual(await listArchivedSessions(archive), [], "metadata without its folder is not listed");
+    assert.deepEqual(await listArchivedSessions(path.join(base, "missing")), []);
+  } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+});
+
+test("archive moves the session folder out of Muse; unarchive moves it back", { skip: !process.env.MUSE_TEST_ENGINE }, async () => {
+  const engine = process.env.MUSE_TEST_ENGINE!;
+  const base = await fixture();
+  try {
+    const harnessUrl = pathToFileURL(path.join(process.cwd(), "test", "backend-fixture.mjs")).href;
+    const harness = await import(harnessUrl);
+    const env = harness.isolatedEnv(path.join(base, "seed"));
+    const workspace = path.join(base, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const seed = await harness.createSyntheticSession({ binary: engine, workspace, env });
+    const service = new CatalogService({ enginePath: engine, storagePath: path.join(base, "storage"), nativeHelperPath: path.join(base, "not-used.exe"), env, extraServeArgs: ["--provider", "echo"] });
+    try {
+      const before = await service.refresh();
+      const root = before.sessions.find(row => row.session_id === seed.sessionId)!;
+      const original = path.dirname(root.log_path);
+      const children = before.sessions.filter(row => row.parent_session_id === seed.sessionId).length;
+      const child = before.sessions.find(row => row.parent_session_id === seed.sessionId);
+      if (child) await assert.rejects(service.archive(child.session_id), /Only main sessions/);
+      const archived = await service.archive(seed.sessionId);
+      assert.equal(archived.status, "archived", archived.message);
+      assert.equal(existsSync(original), false, "the folder left Muse's sessions folder");
+      assert.ok(archived.location.startsWith(service.getArchiveRoot()) && existsSync(path.join(archived.location, "session.jsonl")), "the folder is in the archive folder");
+      assert.equal(archived.session_ids.length, 1 + children, "sub-agent records moved with it");
+      const listed = await service.listArchived();
+      assert.equal(listed.length, 1);
+      assert.equal(listed[0].title, root.title);
+      assert.equal((await service.refresh()).sessions.some(row => row.session_id === seed.sessionId), false, "Muse no longer lists it");
+      const back = await service.unarchive(seed.sessionId);
+      assert.equal(back.status, "unarchived", back.message);
+      assert.ok(existsSync(original), "moved back to the original place");
+      assert.deepEqual(await service.listArchived(), []);
+      assert.ok((await service.refresh()).sessions.some(row => row.session_id === seed.sessionId), "Muse lists it again");
+      assert.ok((await service.readHistory(seed.sessionId)).events?.length, "and reads its transcript");
+    } finally { await service.dispose(); }
+  } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+});
+
+test("deleting an archived session moves it from the archive to the Windows Recycle Bin", { skip: !process.env.MUSE_TEST_ENGINE || process.env.MUSE_TEST_RECYCLE !== "1" }, async () => {
+  const engine = process.env.MUSE_TEST_ENGINE!;
+  const base = await shortFixture();
+  try {
+    const harnessUrl = pathToFileURL(path.join(process.cwd(), "test", "backend-fixture.mjs")).href;
+    const harness = await import(harnessUrl);
+    const env = harness.isolatedEnv(path.join(base, "seed"));
+    const workspace = path.join(base, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const seed = await harness.createSyntheticSession({ binary: engine, workspace, env });
+    const service = new CatalogService({ enginePath: engine, storagePath: path.join(base, "storage"), nativeHelperPath: path.join(process.cwd(), "bin", "muse-history-recycle.exe"), env, extraServeArgs: ["--provider", "echo"] });
+    try {
+      await service.refresh();
+      const archived = await service.archive(seed.sessionId);
+      assert.equal(archived.status, "archived", archived.message);
+      const result = await service.recycleArchived(seed.sessionId);
+      assert.equal(result.status, "recycled", result.message);
+      assert.equal(existsSync(archived.location), false, "the archived folder went to the Recycle Bin");
+      assert.equal(existsSync(`${archived.location}${ARCHIVE_META_SUFFIX}`), false, "its metadata file is gone");
+      assert.deepEqual(await service.listArchived(), []);
+    } finally { await service.dispose(); }
+  } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+});
+
+test("actual recoverable recycle uses native helper then strict cold absence verification", { skip: !process.env.MUSE_TEST_ENGINE || process.env.MUSE_TEST_RECYCLE !== "1" }, async () => {
+  const base = await shortFixture();
   const engine = process.env.MUSE_TEST_ENGINE!;
   try {
     const env = { ...process.env, HOME: path.join(base, "home"), USERPROFILE: path.join(base, "home"), XDG_DATA_HOME: path.join(base, "data"), XDG_CONFIG_HOME: path.join(base, "config"), APPDATA: path.join(base, "roaming"), LOCALAPPDATA: path.join(base, "local") };

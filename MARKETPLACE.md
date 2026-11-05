@@ -11,13 +11,12 @@ This is an unofficial community extension, independently maintained and not affi
 - **Workspace-grouped history.** Every Muse session found on the machine is listed under its original workspace folder, with sub-agent records nested under their parent main session to any depth.
 - **Static, refresh on demand.** History is read only when you press **Refresh**. Nothing runs in the background: no watcher, no timer, no resident engine process.
 - **Rename.** Press F2 or use **Rename…** to give a session a display name. Names are stored by this extension (the Muse engine does not support renaming over its protocol on Windows) and are searchable together with the original title.
-- **Archived view.** Archived sessions have their own **Archived** view below History; open, preview, rename or unarchive them directly.
+- **Archive folder.** Archive moves a main session folder into `~/.local/share/muse/archive/`; the **Archived** view lists it, with **Unarchive**, **Delete**, **Open Archive Folder** and **Empty Archive**.
 - **Lightweight.** Each refresh or preview read starts the Muse engine and stops it as soon as the read is done. A new window shows the last refresh from a small saved snapshot without starting anything. Hidden preview tabs release their page.
-- **Search and archive filter.** Search by title, display name or folder path; switch between unarchived, archived (required parents included), and all.
+- **Search.** Search by title, display name or folder path in History and in the Archived view.
 - **Read-only previews.** Paginated transcript preview for any session, including internal sub-agent records. Pages load on demand up to the end of the transcript. Previews never fetch remote images or links.
 - **Session terminals.** Click a main conversation to open a Muse terminal in its original working directory. Clicking again switches back to the verified terminal instead of creating duplicates, including across window reloads.
-- **Archive management.** Archiving is extension-owned view state, independent of Muse Desktop, and covers a session's whole family.
-- **Recoverable removal.** Move a session directory to the Windows Recycle Bin through a native helper, with a confirmed scope and post-move verification on a fresh engine host.
+- **Delete to the Recycle Bin.** Deleting moves a session folder (from History or from the archive) to the Windows Recycle Bin through a native helper; nothing else is kept.
 
 ## Requirements
 
@@ -35,15 +34,15 @@ This is an unofficial community extension, independently maintained and not affi
 
 - Expand a workspace folder and click a main conversation to open (or switch back to) its Muse terminal in the original working directory.
 - Internal sub-agent records open a read-only preview; use **Muse: Open Parent Main Session Terminal** from the context menu to resume their parent. The current engine does not support resuming internal records directly.
-- Right-click a session for **Preview**, **Rename…** (F2), **Restore Original Title**, **Archive**, **Remove Independent Archive**, or **Move to System Recycle Bin**.
-- Archived sessions are listed in the **Archived** view; click one to open or switch to its terminal just like in History.
-- The list is static: press **Refresh** in the toolbar to re-read history; the header shows when it was last refreshed. Nothing re-reads automatically (not on focus, not when the view is shown, not after a terminal closes). The toolbar also offers search, the archive filter, and engine selection.
+- Right-click a session for **Preview**, **Rename…** (F2), **Restore Original Title**, **Archive** (main sessions; moves the folder to the archive) or **Delete** (moves the folder to the Windows Recycle Bin).
+- Archived sessions are listed in the **Archived** view. Right-click to **Unarchive** (move back to Muse) or **Delete**; the toolbar offers **Open Archive Folder** and **Empty Archive**. Archived sessions cannot be opened or previewed until unarchived.
+- The list is static: press **Refresh** in the toolbar to re-read history; the header shows when it was last refreshed. Nothing re-reads automatically (not on focus, not when the view is shown, not after a terminal closes). The toolbar also offers search and engine selection.
 
 ## Archive vs. Recycle Bin
 
 - **Rename** works the same way: the display name lives in this extension's state; Muse, Muse Desktop and `resume` keep the original title.
-- **Archive** only changes what this extension shows. Files stay untouched on disk, and neither Muse Desktop nor a direct `resume` sees the flag. **Remove Independent Archive** clears a row's own flag; rows covered by an archived ancestor stay hidden until that ancestor is unarchived.
-- **Move to System Recycle Bin** relocates the real session directory — including every child record inside it — into the Windows Recycle Bin. Recover by restoring the folder from the Recycle Bin, then refreshing the sidebar. This extension never permanently deletes data and never empties the Recycle Bin. A partially completed move is reported as such and never silently retried.
+- **Archive** moves the real session folder to `~/.local/share/muse/archive/<yyyy>/<mm>/<dd>/<id>` (with a small `<id>.archive.json` beside it). Muse no longer lists or resumes it until **Unarchive** moves it back.
+- **Delete** moves the session folder — including every child record inside it — into the Windows Recycle Bin. Restore it from the Recycle Bin and refresh to undo. The extension keeps no other copy, never empties the Recycle Bin, and Windows asks before permanently deleting anything it cannot recycle.
 
 ## Limitations
 

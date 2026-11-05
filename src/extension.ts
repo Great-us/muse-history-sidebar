@@ -28,12 +28,21 @@ export async function activate(context: vscode.ExtensionContext) {
   await mkdir(context.globalStorageUri.fsPath, { recursive: true });
   service = new CatalogService({ storagePath: context.globalStorageUri.fsPath, nativeHelperPath: context.asAbsolutePath('bin/muse-history-recycle.exe'), enginePath: test?.enginePath || vscode.workspace.getConfiguration('museHistory').get<string>('enginePath') || undefined, env: test?.env, extraServeArgs: test?.extraArgs });
   const catalog = service;
-  const archiveKey = 'archiveIds.v1';
   const namesKey = 'displayNames.v1';
-  const archives = () => context.globalState.get<string[]>(archiveKey, []);
   const names = () => context.globalState.get<Record<string, string>>(namesKey, {});
-  const tree = new HistoryTree(archives);
-  const archivedTree = new HistoryTree(archives, 'archived');
+  // 0.2.1: Archive moves the session folder into the archive folder. The old
+  // hide-only flags are dropped once; those sessions simply show in History again.
+  const legacyArchiveKey = 'archiveIds.v1';
+  const legacyFlags = context.globalState.get<string[]>(legacyArchiveKey, []);
+  if (legacyFlags.length) {
+    await context.globalState.update(legacyArchiveKey, undefined);
+    if (!test) void vscode.window.showInformationMessage(`Muse History: Archive now moves a session into the archive folder (${catalog.getArchiveRoot()}). ${legacyFlags.length} session(s) hidden by the old archive flag are shown in History again; archive them again to move them.`);
+  }
+  const noFlags = () => [] as string[];
+  const tree = new HistoryTree(noFlags, 'all');
+  const archivedTree = new HistoryTree(noFlags, 'all');
+  /** Sessions currently in the archive folder (read from their metadata files, no engine). */
+  let archivedRows: CatalogRow[] = [];
   const view = vscode.window.createTreeView('museHistory.sessions', { treeDataProvider: tree, showCollapseAll: true });
   const archivedView = vscode.window.createTreeView('museHistory.archived', { treeDataProvider: archivedTree, showCollapseAll: true });
   const terminals = new SessionTerminals(await SessionTerminals.owner(context.globalState), () => catalog.getEnginePath(), context.globalState, test ? { env: test.env, extraArgs: test.extraArgs } : undefined);
@@ -57,33 +66,34 @@ export async function activate(context: vscode.ExtensionContext) {
   const snapshotFile = join(context.globalStorageUri.fsPath, 'last-inventory.v1.json');
   const updateDescription = () => {
     const when = refreshedAt ? `Refreshed ${new Date(refreshedAt).toLocaleString()}` : '';
-    view.description = [tree.filter === 'active' ? 'Unarchived' : tree.filter === 'archived' ? 'Archived' : 'All', tree.query, refreshing ? 'Refreshing…' : when].filter(Boolean).join(' · ');
+    view.description = [tree.query, refreshing ? 'Refreshing…' : when].filter(Boolean).join(' · ');
     view.message = lastError ? `${lastError}${inventory ? '\n(Showing the last successful read.)' : ''}`
-      : !inventory ? (refreshing ? 'Reading local Muse history…' : 'Press Refresh to read local Muse history.') : tree.groups.length ? (inventory.warnings.length ? inventory.warnings.join('\n') : undefined) : 'No matching history. Search, change the archive filter, or refresh.';
-    archivedView.description = [inventory ? `${archives().filter(id => tree.forest.treeById.has(id)).length} archived` : '', archivedTree.query].filter(Boolean).join(' · ');
-    archivedView.message = !inventory ? (refreshing ? 'Reading local Muse history…' : 'Press Refresh to read local Muse history.') : archivedTree.groups.length ? undefined
-      : archivedTree.query ? 'No archived session matches this search.' : 'No archived sessions. Right-click a session in History and choose Archive.';
+      : !inventory ? (refreshing ? 'Reading local Muse history…' : 'Press Refresh to read local Muse history.') : tree.groups.length ? (inventory.warnings.length ? inventory.warnings.join('\n') : undefined) : 'No matching history. Search or refresh.';
+    archivedView.description = [`${archivedRows.length} archived`, archivedTree.query].filter(Boolean).join(' · ');
+    archivedView.message = archivedTree.groups.length ? undefined
+      : archivedTree.query ? 'No archived session matches this search.' : `No archived sessions. Right-click a main session in History and choose Archive to move it to ${catalog.getArchiveRoot()}.`;
   };
-  /** Re-renders both views from the last read plus current local names/archives. No engine access. */
+  /** Re-renders both views from the last read plus current local names. No engine access. */
   const render = () => {
-    const rows = applyDisplayNames(baseRows, names());
-    tree.update(rows);
-    archivedTree.update(rows);
+    tree.update(applyDisplayNames(baseRows, names()));
+    archivedTree.update(applyDisplayNames(archivedRows, names()));
     updateDescription();
   };
+  const reloadArchived = async () => { archivedRows = await catalog.listArchived(); };
   const saveSnapshot = async (result: CatalogInventory, at: number) => {
     const temporary = `${snapshotFile}.tmp`;
-    await writeFile(temporary, JSON.stringify({ at, inventory: result }));
+    await writeFile(temporary, JSON.stringify({ at, inventory: result, archived: archivedRows }));
     await renameFile(temporary, snapshotFile);
   };
   /** Shows the last refresh without starting any process; false when there is none. */
   const loadSnapshot = async (): Promise<boolean> => {
     try {
-      const saved = JSON.parse(await readFile(snapshotFile, 'utf8')) as { at?: unknown; inventory?: CatalogInventory };
+      const saved = JSON.parse(await readFile(snapshotFile, 'utf8')) as { at?: unknown; inventory?: CatalogInventory; archived?: CatalogRow[] };
       if (typeof saved.at !== 'number' || !saved.inventory || !Array.isArray(saved.inventory.sessions)) return false;
       inventory = saved.inventory;
       refreshedAt = saved.at;
       baseRows = saved.inventory.sessions;
+      archivedRows = Array.isArray(saved.archived) ? saved.archived : [];
       render();
       return true;
     } catch { return false; }
@@ -98,6 +108,7 @@ export async function activate(context: vscode.ExtensionContext) {
       refreshedAt = Date.now();
       await terminals.reconnect(result.sessions);
       baseRows = await terminals.withOwnedWorkspaces(result.sessions);
+      await reloadArchived();
       render();
       void saveSnapshot(result, refreshedAt).catch(() => undefined);
       return result;
@@ -111,17 +122,61 @@ export async function activate(context: vscode.ExtensionContext) {
   const register = (name: string, handler: (...args: any[]) => unknown) => context.subscriptions.push(vscode.commands.registerCommand(`museHistory.${name}`, async (...args) => { try { return await handler(...args); } catch (error) { report(error); return undefined; } }));
   /** Context-menu commands receive the node; keybindings receive nothing and use the focused view's selection. */
   const target = (value?: HistoryNode | string): CatalogRow => {
-    if (value !== undefined) return tree.row(value);
+    if (value !== undefined && typeof value !== 'string') return tree.row(value);
+    if (typeof value === 'string') return tree.forest.treeById.get(value)?.row ?? archivedTree.row(value);
     const selected = lastSelectedView.selection[0] ?? view.selection[0] ?? archivedView.selection[0];
     if (!selected || selected.type !== 'session') throw new Error('Select a session in the Muse history list first.');
-    return tree.row(selected.tree.row.session_id);
+    return selected.tree.row;
   };
-  const setArchived = async (value: HistoryNode | string, archived: boolean) => {
+  /** Archive: move the session folder (with its sub-agent records) into the archive folder. */
+  const archive = async (value: HistoryNode | string) => {
     const row = target(value);
-    const ids = new Set(archives());
-    if (archived) ids.add(row.session_id); else ids.delete(row.session_id);
-    await context.globalState.update(archiveKey, [...ids]);
+    if (row.archived_at) throw new Error('This session is already in the archive folder.');
+    const result = await catalog.archive(row.session_id, terminals.inUseIds());
+    await refresh();
+    if (result.status === 'archived') void vscode.window.showInformationMessage(`Muse History: archived "${row.title || row.session_id}". ${result.message}`);
+    else void vscode.window.showWarningMessage(`Muse History: ${result.message}`);
+    return result;
+  };
+  /** Unarchive: move the folder back to Muse's sessions folder. */
+  const unarchive = async (value: HistoryNode | string) => {
+    const row = target(value);
+    if (!row.archived_at) throw new Error('This session is not in the archive folder.');
+    const result = await catalog.unarchive(row.session_id);
+    await refresh();
+    if (result.status === 'unarchived') void vscode.window.showInformationMessage(`Muse History: "${row.title || row.session_id}" is back in History.`);
+    else void vscode.window.showWarningMessage(`Muse History: ${result.message}`);
+    return result;
+  };
+  const setArchived = (value: HistoryNode | string, archived: boolean) => archived ? archive(value) : unarchive(value);
+  const forgetNames = async (ids: Iterable<string>) => {
+    const purged = new Set(ids);
+    await context.globalState.update(namesKey, Object.fromEntries(Object.entries(names()).filter(([id]) => !purged.has(id))));
+  };
+  /** Empty Archive: every archived folder goes to the Windows Recycle Bin (recoverable there until it is emptied). */
+  const emptyArchive = async (confirmed = false) => {
+    await reloadArchived();
     render();
+    if (!archivedRows.length) { void vscode.window.showInformationMessage('Muse History: the archive is already empty.'); return { recycled: 0, failed: [] as string[] }; }
+    if (!confirmed) {
+      const choice = await vscode.window.showWarningMessage(`Move all ${archivedRows.length} archived session(s) to the Windows Recycle Bin?`, { modal: true, detail: `${archivedRows.map(row => row.title || row.session_id).join('\n')}\n\nThey can still be restored from the Windows Recycle Bin until it is emptied.` }, 'Move All to Recycle Bin');
+      if (choice !== 'Move All to Recycle Bin') return undefined;
+    }
+    const failed: string[] = [];
+    const recycled: string[] = [];
+    for (const row of [...archivedRows]) {
+      try {
+        const result = await catalog.recycleArchived(row.session_id);
+        if (result.status === 'recycled') recycled.push(row.session_id); else failed.push(`${row.title || row.session_id}: ${result.message}`);
+      } catch (error) { failed.push(`${row.title || row.session_id}: ${error instanceof Error ? error.message : String(error)}`); }
+    }
+    await forgetNames(recycled);
+    await reloadArchived();
+    render();
+    if (inventory && refreshedAt) void saveSnapshot(inventory, refreshedAt).catch(() => undefined);
+    if (failed.length) void vscode.window.showWarningMessage(`Muse History: moved ${recycled.length} to the Recycle Bin; ${failed.length} failed.`, { modal: false, detail: failed.join('\n') });
+    else void vscode.window.showInformationMessage(`Muse History: moved ${recycled.length} archived session(s) to the Windows Recycle Bin.`);
+    return { recycled: recycled.length, failed };
   };
   const rename = async (value?: HistoryNode | string, requested?: string) => {
     const row = target(value);
@@ -154,9 +209,10 @@ export async function activate(context: vscode.ExtensionContext) {
     const query = await vscode.window.showInputBox({ title: 'Search Archived Muse Sessions', prompt: 'Match titles, renamed titles or folder paths; empty shows all archived sessions.', value: archivedTree.query });
     if (query !== undefined) { archivedTree.query = query.trim(); render(); }
   });
-  register('filter', async () => {
-    const choice = await vscode.window.showQuickPick([{ label: 'Unarchived', value: 'active' as const }, { label: 'Archived (required parents included)', value: 'archived' as const }, { label: 'All', value: 'all' as const }], { title: 'Muse History · Archive Filter' });
-    if (choice) { tree.filter = choice.value; render(); }
+  register('emptyArchive', () => emptyArchive());
+  register('openArchiveFolder', async () => {
+    await mkdir(catalog.getArchiveRoot(), { recursive: true });
+    await vscode.env.openExternal(vscode.Uri.file(catalog.getArchiveRoot()));
   });
   register('chooseEngine', async () => {
     const choice = await vscode.window.showOpenDialog({ title: 'Choose the local native Muse engine', canSelectFiles: true, canSelectFolders: false, canSelectMany: false, filters: { 'Windows native engine': ['exe'] } });
@@ -178,25 +234,36 @@ export async function activate(context: vscode.ExtensionContext) {
     await preview.load();
     return preview;
   });
-  register('archive', (value: HistoryNode | string) => setArchived(value, true));
-  register('unarchive', (value: HistoryNode | string) => setArchived(value, false));
+  register('archive', (value: HistoryNode | string) => archive(value));
+  register('unarchive', (value: HistoryNode | string) => unarchive(value));
   register('rename', (value?: HistoryNode | string, requested?: string) => rename(value, typeof requested === 'string' ? requested : undefined));
   register('resetName', (value?: HistoryNode | string) => rename(value, ''));
   const recycle = async (value: HistoryNode | string, confirmed = false) => {
     const row = target(value);
+    if (row.archived_at) {
+      if (!confirmed) {
+        const choice = await vscode.window.showWarningMessage(`Move the archived session "${row.title || row.session_id}" to the Windows Recycle Bin?`, { modal: true, detail: `${row.archived_sub_records ? `Includes ${row.archived_sub_records} sub-agent record(s).\n` : ''}It can be restored from the Windows Recycle Bin until the Recycle Bin is emptied.` }, 'Move to Recycle Bin');
+        if (choice !== 'Move to Recycle Bin') return undefined;
+      }
+      const result = await catalog.recycleArchived(row.session_id);
+      if (result.status === 'recycled') await forgetNames(result.recycled_session_ids);
+      await reloadArchived();
+      render();
+      if (inventory && refreshedAt) void saveSnapshot(inventory, refreshedAt).catch(() => undefined);
+      if (result.status === 'recycled') void vscode.window.showInformationMessage(result.message); else void vscode.window.showWarningMessage(result.message);
+      return result;
+    }
     const descendants = tree.forest.treeById.get(row.session_id)?.descendants ?? [];
     const scope = [row, ...descendants];
     const inUse = terminals.inUseIds();
     if (scope.some(item => inUse.has(item.session_id))) throw new Error('A Muse terminal for this session or one of its child records is still open. Close that terminal first.');
     if (!confirmed) {
-      const choice = await vscode.window.showWarningMessage(`Move "${row.title || row.session_id}" and its ${descendants.length} child record(s) to the Windows Recycle Bin?`, { modal: true, detail: `Scope: ${row.session_id}\n${scope.map(item => item.title || item.session_id).join('\n')}\nRecoverable from the system Recycle Bin. Nothing is permanently deleted.` }, 'Move to Recycle Bin');
+      const choice = await vscode.window.showWarningMessage(`Move "${row.title || row.session_id}" and its ${descendants.length} child record(s) to the Windows Recycle Bin?`, { modal: true, detail: `Scope: ${row.session_id}\n${scope.map(item => item.title || item.session_id).join('\n')}\nIt can be restored from the Windows Recycle Bin until the Recycle Bin is emptied.` }, 'Move to Recycle Bin');
       if (choice !== 'Move to Recycle Bin') return undefined;
     }
     const result = await catalog.recycle(row.session_id, inUse);
     if (result.status === 'recycled') {
-      const purged = new Set(result.recycled_session_ids);
-      await context.globalState.update(archiveKey, archives().filter(id => !purged.has(id)));
-      await context.globalState.update(namesKey, Object.fromEntries(Object.entries(names()).filter(([id]) => !purged.has(id))));
+      await forgetNames(result.recycled_session_ids);
       await refresh();
       void vscode.window.showInformationMessage(result.message);
     } else { void vscode.window.showWarningMessage(result.message); }
@@ -241,7 +308,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   }
   // Only the isolated development/test host receives direct validation hooks.
-  return test ? { ready, tree, archivedTree, view, archivedView, terminals, catalog, refresh, archives, names, setArchived, rename, recycle, previews, globalState: context.globalState, storagePath: join(context.globalStorageUri.fsPath, '..') } : { ready };
+  return test ? { ready, tree, archivedTree, view, archivedView, terminals, catalog, refresh, archives: () => archivedRows.map(row => row.session_id), archivedRows: () => archivedRows, names, setArchived, archive, unarchive, emptyArchive, rename, recycle, previews, globalState: context.globalState, storagePath: join(context.globalStorageUri.fsPath, '..') } : { ready };
 }
 
 export async function deactivate(): Promise<void> { await service?.dispose(); service = undefined; }

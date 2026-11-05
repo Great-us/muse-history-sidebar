@@ -38,11 +38,21 @@ export class HistoryTree implements vscode.TreeDataProvider<HistoryNode>, vscode
     const { row, children, archived, contextOnly } = node.tree;
     const child = row.kind !== 'root' || Boolean(row.parent_session_id);
     const renamed = row.original_title !== undefined;
+    if (row.archived_at) {
+      // A session moved to the archive folder: Muse cannot see it, so it cannot be opened or previewed until unarchived.
+      const archivedItem = new vscode.TreeItem(row.title || row.session_id, vscode.TreeItemCollapsibleState.None);
+      archivedItem.id = this.itemId(row.session_id);
+      archivedItem.description = [row.session_id.slice(-12), `Archived ${new Date(row.archived_at).toLocaleDateString()}`, row.archived_sub_records ? `${row.archived_sub_records} sub-record(s)` : ''].filter(Boolean).join(' · ');
+      archivedItem.tooltip = `${row.title}${renamed ? `\nMuse title: ${row.original_title || '(none)'}` : ''}\n${row.workspace || 'Directory unknown'}\n${row.session_id}\nIn the archive folder: ${row.log_path.replace(/[\\/]session\.jsonl$/, '')}\nRight-click to Unarchive (move back to Muse) or Delete (move to the Windows Recycle Bin).`;
+      archivedItem.contextValue = `archivedEntry${renamed ? '-renamed' : ''}`;
+      archivedItem.iconPath = new vscode.ThemeIcon('archive');
+      return archivedItem;
+    }
     const item = new vscode.TreeItem(row.title || row.session_id, children.length ? vscode.TreeItemCollapsibleState.Collapsed : vscode.TreeItemCollapsibleState.None);
     item.id = this.itemId(row.session_id);
     item.description = [row.session_id.slice(-12), child ? 'Child · Preview' : '', archived && !this.fixedFilter ? 'Archived' : '', contextOnly ? 'Contains archived children' : '', row.running ? 'Running' : '', row.workspace_source === 'own-terminal' ? 'Directory from launch record' : ''].filter(Boolean).join(' · ');
     item.tooltip = `${row.title}${renamed ? `\nMuse title: ${row.original_title || '(none)'}` : ''}\n${row.workspace || 'Directory unknown'}\n${row.session_id}${row.workspace_source === 'own-terminal' ? '\nDirectory from a terminal launch record of this extension' : ''}${child ? '\nInternal child records cannot be resumed on their own; open the parent main session terminal from the menu.' : row.workspace_source === 'own-terminal' ? '\nClick to switch back to the verified original terminal; this directory must not start another session.' : '\nClick to open or focus this session terminal.'}`;
-    item.contextValue = `session-${child ? 'child' : 'root'}${this.archiveIds().includes(row.session_id) ? '-selfArchived' : ''}${renamed ? '-renamed' : ''}`;
+    item.contextValue = `session-${child ? 'child' : 'root'}${renamed ? '-renamed' : ''}`;
     item.iconPath = new vscode.ThemeIcon(child ? 'references' : archived ? 'archive' : 'comment-discussion');
     item.command = { command: child ? 'museHistory.preview' : 'museHistory.open', title: child ? 'Read-only Preview' : 'Open Session Terminal', arguments: [node] };
     return item;

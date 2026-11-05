@@ -20,6 +20,10 @@ export interface CatalogRow {
   title: string;
   /** Engine-derived title when `title` carries this extension's local display name. */
   original_title?: string;
+  /** Set only for sessions moved to the archive folder: when they were archived. */
+  archived_at?: string;
+  /** Number of sub-agent records that moved to the archive with this session. */
+  archived_sub_records?: number;
   kind: string;
   parent_session_id?: string | null;
   created_at?: string | null;

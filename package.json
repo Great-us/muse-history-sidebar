@@ -3,7 +3,7 @@
   "displayName": "Muse History Sidebar",
   "description": "Browse local Muse history by workspace folder with rename and a dedicated Archived view; a static, refresh-on-demand sidebar with no background processes.",
   "publisher": "AlexWonton",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "license": "MIT",
   "engines": {
     "vscode": "^1.144.0"
@@ -78,11 +78,6 @@
         "icon": "$(search)"
       },
       {
-        "command": "museHistory.filter",
-        "title": "Muse: Filter by Archive Status",
-        "icon": "$(filter)"
-      },
-      {
         "command": "museHistory.chooseEngine",
         "title": "Muse: Choose Engine",
         "icon": "$(gear)"
@@ -109,15 +104,25 @@
       },
       {
         "command": "museHistory.archive",
-        "title": "Muse: Archive"
+        "title": "Muse: Archive (Move to Archive Folder)"
       },
       {
         "command": "museHistory.unarchive",
-        "title": "Muse: Remove Independent Archive"
+        "title": "Muse: Unarchive (Move Back to Muse)"
       },
       {
         "command": "museHistory.recycle",
-        "title": "Muse: Move to System Recycle Bin"
+        "title": "Muse: Delete (Move to Windows Recycle Bin)"
+      },
+      {
+        "command": "museHistory.emptyArchive",
+        "title": "Muse: Empty Archive (Move All to Recycle Bin)",
+        "icon": "$(trash)"
+      },
+      {
+        "command": "museHistory.openArchiveFolder",
+        "title": "Muse: Open Archive Folder",
+        "icon": "$(folder-opened)"
       }
     ],
     "menus": {
@@ -133,11 +138,6 @@
           "group": "navigation@2"
         },
         {
-          "command": "museHistory.filter",
-          "when": "view == museHistory.sessions",
-          "group": "navigation@3"
-        },
-        {
           "command": "museHistory.chooseEngine",
           "when": "view == museHistory.sessions",
           "group": "navigation@4"
@@ -151,27 +151,37 @@
           "command": "museHistory.searchArchived",
           "when": "view == museHistory.archived",
           "group": "navigation@2"
+        },
+        {
+          "command": "museHistory.openArchiveFolder",
+          "when": "view == museHistory.archived",
+          "group": "navigation@3"
+        },
+        {
+          "command": "museHistory.emptyArchive",
+          "when": "view == museHistory.archived",
+          "group": "navigation@4"
         }
       ],
       "view/item/context": [
         {
           "command": "museHistory.preview",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /session/",
+          "when": "view == museHistory.sessions && viewItem =~ /session/",
           "group": "1_open@1"
         },
         {
           "command": "museHistory.open",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /root/",
+          "when": "view == museHistory.sessions && viewItem =~ /root/",
           "group": "1_open@2"
         },
         {
           "command": "museHistory.openParent",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /child/",
+          "when": "view == museHistory.sessions && viewItem =~ /child/",
           "group": "1_open@2"
         },
         {
           "command": "museHistory.rename",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /session/",
+          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /session|archivedEntry/",
           "group": "2_manage@0"
         },
         {
@@ -181,17 +191,17 @@
         },
         {
           "command": "museHistory.archive",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /session/ && !(viewItem =~ /selfArchived/)",
+          "when": "view == museHistory.sessions && viewItem =~ /session-root/",
           "group": "2_manage@1"
         },
         {
           "command": "museHistory.unarchive",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /selfArchived/",
+          "when": "view == museHistory.archived && viewItem =~ /archivedEntry/",
           "group": "2_manage@1"
         },
         {
           "command": "museHistory.recycle",
-          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /session/",
+          "when": "view =~ /^museHistory\\.(sessions|archived)$/ && viewItem =~ /session|archivedEntry/",
           "group": "3_recycle"
         }
       ],

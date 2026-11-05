@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { mkdir, mkdtemp, writeFile, rm, symlink, copyFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile, rm, symlink, copyFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
@@ -73,6 +73,27 @@ test("metadata walk finds all grandchildren without following a real junction", 
     assert.match(inventory[2].title, new RegExp(`^\\[${path.basename(grandchild).slice(-12)}\\]`));
     assert.equal(inventory[2].workspace, base);
     assert.ok(inventory[2].created_at && inventory[2].updated_at);
+  } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+});
+
+test("metadata walk refuses a sessions root that is itself a junction and reports a missing root", async () => {
+  const base = await fixture();
+  try {
+    const real = path.join(base, "real-sessions");
+    const session = path.join(real, randomUUID());
+    await mkdir(session, { recursive: true });
+    await writeFile(path.join(session, "session.jsonl"), "metadata only\n");
+    const linked = path.join(base, "sessions");
+    await symlink(real, linked, process.platform === "win32" ? "junction" : "dir");
+    const viaLink = await scanDisk(linked, process.env);
+    assert.equal(viaLink.sessions.length, 0);
+    assert.match(viaLink.warnings[0], /not a plain directory/);
+    const direct = await scanDisk(real, process.env);
+    assert.equal(direct.sessions.length, 1);
+    assert.equal(direct.sessions[0].log_bytes, "metadata only\n".length);
+    const missing = await scanDisk(path.join(base, "absent"), process.env);
+    assert.deepEqual(missing.sessions, []);
+    assert.match(missing.warnings[0], /No sessions directory/);
   } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });
 
@@ -254,6 +275,45 @@ test("actual engine discovery and read-only synthetic MSP integration", { skip: 
       const child = await seeded.readHistory(children[0].session_id);
       assert.ok(child.events && child.events.length > 0);
     } finally { await seeded.dispose(); }
+  } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
+});
+
+test("resource use: no engine process or temp folder survives a refresh or a preview read", { skip: !process.env.MUSE_TEST_ENGINE }, async () => {
+  const engine = process.env.MUSE_TEST_ENGINE!;
+  const base = await fixture();
+  try {
+    // Keep the URL in a variable: TypeScript 7 does not rewrite identifiers inside an import() argument.
+    const harnessUrl = pathToFileURL(path.join(process.cwd(), "test", "backend-fixture.mjs")).href;
+    const harness = await import(harnessUrl);
+    const env = harness.isolatedEnv(path.join(base, "seed"));
+    const workspace = path.join(base, "workspace");
+    await mkdir(workspace, { recursive: true });
+    const seed = await harness.createSyntheticSession({ binary: engine, workspace, env });
+    const storage = path.join(base, "storage");
+    const service = new CatalogService({ enginePath: engine, storagePath: storage, nativeHelperPath: path.join(base, "not-used.exe"), env, extraServeArgs: ["--provider", "echo"] });
+    const leftovers = async () => (await readdir(storage)).filter(name => name.startsWith("catalog-host-"));
+    try {
+      const first = await service.refresh();
+      assert.ok(first.sessions.some(row => row.session_id === seed.sessionId));
+      assert.equal(service.hostStarts, 1);
+      await service.idle();
+      assert.equal(service.hostRunning, false, "the engine process exits as soon as the refresh finished");
+      assert.deepEqual(await leftovers(), [], "its temporary folder is removed too");
+      const page = await service.readHistory(seed.sessionId);
+      assert.ok(page.events && page.events.length > 0);
+      await service.idle();
+      assert.equal(service.hostStarts, 2, "a preview read starts the engine once");
+      assert.equal(service.hostRunning, false, "and stops it right after");
+      assert.deepEqual(await leftovers(), []);
+      // Two reads queued back to back share one engine process, then it stops.
+      const [again, history] = await Promise.all([service.refresh(), service.readHistory(seed.sessionId)]);
+      assert.ok(again.sessions.length && history.events?.length);
+      await service.idle();
+      assert.equal(service.hostRunning, false);
+      await service.getEnginePath();
+      await service.getEnginePath();
+    } finally { await service.dispose(); }
+    assert.equal(service.hostRunning, false);
   } finally { await rm(base, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); }
 });
 

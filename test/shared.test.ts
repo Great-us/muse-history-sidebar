@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildCatalogForest, buildCatalogGroups, isCatalogRowArchived, mergeCatalogEntries, type CatalogRow } from "../src/shared/sessionCatalog";
+import { applyDisplayNames, buildCatalogForest, buildCatalogGroups, isCatalogRowArchived, MAX_DISPLAY_NAME, mergeCatalogEntries, normalizeDisplayName, type CatalogRow } from "../src/shared/sessionCatalog";
 import { historyEventsToLogEntries, historyItemsToLogEntries } from "../src/shared/history";
 
 function row(id: string, parent?: string): CatalogRow {
@@ -20,6 +20,32 @@ test("archive inheritance preserves independently archived grandchildren and sea
   assert.ok(restoredParent[0].trees[0].children[0].contextOnly);
   assert.ok(restoredParent[0].trees[0].children[0].children[0].archived);
   assert.equal(buildCatalogGroups(forest, archived, "active", "").length, 0);
+});
+
+test("local display names replace titles, keep the engine title searchable, and normalize input", () => {
+  const rows = [row("root"), row("child", "root"), row("other")];
+  const named = applyDisplayNames(rows, { root: "  My   renamed\nroot  ", child: "   ", missing: "ghost" });
+  assert.equal(named[0].title, "My renamed root");
+  assert.equal(named[0].original_title, "root");
+  assert.equal(named[1].title, "child", "blank name keeps the engine title");
+  assert.equal(named[1].original_title, undefined);
+  assert.equal(named.length, 3, "names of absent sessions never create rows");
+  assert.equal(rows[0].title, "root", "input rows are not mutated");
+  const forest = buildCatalogForest(named);
+  assert.equal(buildCatalogGroups(forest, [], "active", "renamed").length, 1, "search finds the display name");
+  assert.equal(buildCatalogGroups(forest, [], "active", "root").length, 1, "search still finds the engine title");
+  assert.equal(normalizeDisplayName("x".repeat(500)).length, MAX_DISPLAY_NAME);
+  assert.equal(normalizeDisplayName("\u0000tab\tname\u007f"), "tab name");
+});
+
+test("archived view keeps archived descendants placed under context-only parents", () => {
+  const rows = [row("root"), row("child", "root"), row("other")];
+  const groups = buildCatalogGroups(buildCatalogForest(rows), ["child", "other"], "archived", "");
+  const trees = groups.flatMap(group => group.trees);
+  assert.deepEqual(trees.map(tree => tree.row.session_id).sort(), ["other", "root"]);
+  const root = trees.find(tree => tree.row.session_id === "root")!;
+  assert.ok(root.contextOnly && !root.archived);
+  assert.ok(root.children[0].archived && !root.children[0].contextOnly);
 });
 
 test("preview merges beyond 2000 entries and folds later revisions", () => {

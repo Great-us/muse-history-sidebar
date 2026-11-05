@@ -18,6 +18,8 @@ export interface CatalogRow {
   /** UI display-only provenance from a verified owned receipt; never authorizes terminal creation. */
   workspace_source?: "own-terminal";
   title: string;
+  /** Engine-derived title when `title` carries this extension's local display name. */
+  original_title?: string;
   kind: string;
   parent_session_id?: string | null;
   created_at?: string | null;
@@ -218,6 +220,7 @@ export function isCatalogRowArchived(
 function rowMatchesQuery(row: CatalogRow, needle: string): boolean {
   return (
     row.title.toLowerCase().includes(needle) ||
+    (row.original_title ?? "").toLowerCase().includes(needle) ||
     displayPath(row.workspace).toLowerCase().includes(needle) ||
     row.workspace.toLowerCase().includes(needle)
   );
@@ -430,3 +433,22 @@ export function catalogCanLoadMore(paging: CatalogPaging): boolean {
   );
 }
 
+/** Maximum length of a local display name. */
+export const MAX_DISPLAY_NAME = 200;
+
+/** Normalizes a requested display name; an empty result means "restore the engine title". */
+export function normalizeDisplayName(value: string): string {
+  return value.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, MAX_DISPLAY_NAME);
+}
+
+/**
+ * Applies this extension's local display names. The engine title is kept in
+ * `original_title` so search, tooltips and "restore" still reach it. Names for
+ * sessions absent from the inventory are ignored, never invented.
+ */
+export function applyDisplayNames(rows: readonly CatalogRow[], names: Readonly<Record<string, string>>): CatalogRow[] {
+  return rows.map(row => {
+    const name = Object.prototype.hasOwnProperty.call(names, row.session_id) ? normalizeDisplayName(names[row.session_id]) : "";
+    return name ? { ...row, title: name, original_title: row.title } : row;
+  });
+}

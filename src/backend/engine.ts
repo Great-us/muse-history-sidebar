@@ -57,14 +57,17 @@ async function installedEngine(directory: string): Promise<string | undefined> {
   return candidates.filter(item => item.metadata.isFile()).sort((a, b) => b.metadata.mtimeMs - a.metadata.mtimeMs)[0]?.file;
 }
 
-export async function resolveEngine(override: string | undefined, env: NodeJS.ProcessEnv): Promise<string> {
-  if (override) return validateEngine(override, env);
+export type EngineValidator = (file: string, env: NodeJS.ProcessEnv) => Promise<string>;
+
+/** `validate` lets callers memoize the `--version` probe; discovery itself is metadata-only. */
+export async function resolveEngine(override: string | undefined, env: NodeJS.ProcessEnv, validate: EngineValidator = validateEngine): Promise<string> {
+  if (override) return validate(override, env);
   const searchPath = env.PATH ?? env.Path ?? "";
   for (const directory of searchPath.split(path.delimiter).filter(directory => path.isAbsolute(directory))) {
     const launchers = await Promise.all(["muse.cmd", "muse.ps1", "muse.exe"].map(name => fileExists(path.join(directory, name))));
     if (launchers.some(Boolean)) {
       const engine = await installedEngine(directory);
-      if (engine) return validateEngine(engine, env);
+      if (engine) return validate(engine, env);
     }
   }
   const locations = [
@@ -74,7 +77,7 @@ export async function resolveEngine(override: string | undefined, env: NodeJS.Pr
   for (const directory of locations) {
     if (!directory) continue;
     const engine = await installedEngine(directory);
-    if (engine) return validateEngine(engine, env);
+    if (engine) return validate(engine, env);
   }
   throw new Error("Muse engine not found. Install Muse CLI or choose its native muse-bin-<version>.exe in the sidebar.");
 }

@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
 import path from "node:path";
 import type { CatalogHistoryPage, CatalogInventory, CatalogRecycleResult, CatalogRow } from "../shared/sessionCatalog";
 import { museDataRoot, resolveEngine, validateEngine } from "./engine";
@@ -61,6 +61,10 @@ export class CatalogService {
   private stopping: Promise<void> | undefined;
   private serial: Promise<unknown> = Promise.resolve();
   private disposed = false;
+  /** Engine files already proven by `--version`, keyed by path + size + mtime. */
+  private readonly validatedEngines = new Set<string>();
+  /** Number of engine hosts started (diagnostics and tests). */
+  hostStarts = 0;
 
   constructor(private readonly options: CatalogOptions) {
     this.env = { ...(options.env ?? process.env), MUSE_NO_AUTO_UPDATE: "1" };
@@ -68,21 +72,48 @@ export class CatalogService {
     this.enginePath = options.enginePath;
   }
 
+  /**
+   * Operations serialize. When the last queued operation finishes, the engine
+   * host is stopped right away: between user-triggered reads no engine process
+   * (and no temporary folder) exists. The stop is queued behind the result, so
+   * callers get their answer without waiting for the process to exit.
+   */
   private run<T>(operation: () => Promise<T>): Promise<T> {
+    this.pendingOps++;
     const task = this.serial.then(() => {
       if (this.disposed) throw new Error("Muse catalog has been disposed.");
       return operation();
     });
-    this.serial = task.catch(() => undefined);
+    this.serial = task.catch(() => undefined).then(async () => {
+      this.pendingOps--;
+      if (this.pendingOps === 0) await this.stopHost().catch(() => undefined);
+    });
     return task;
   }
+
+  private pendingOps = 0;
+
+  /** Resolves once every queued operation finished and the engine host is gone. */
+  idle(): Promise<void> { return this.serial.then(() => undefined); }
+
+  get hostRunning(): boolean { return Boolean(this.host && !this.host.isClosed); }
+
+  /** `--version` runs once per engine file version, not on every read. */
+  private readonly validate = async (file: string, env: NodeJS.ProcessEnv): Promise<string> => {
+    const metadata = await stat(file);
+    const key = `${path.resolve(file).toLowerCase()}|${metadata.size}|${metadata.mtimeMs}`;
+    if (this.validatedEngines.has(key)) return file;
+    await validateEngine(file, env);
+    this.validatedEngines.add(key);
+    return file;
+  };
 
   getDataRoot(): string { return this.dataRoot; }
 
   async getEnginePath(): Promise<string> {
     if (this.disposed) throw new Error("Muse catalog has been disposed.");
     const selected = this.enginePath;
-    const engine = await resolveEngine(selected, this.env);
+    const engine = await resolveEngine(selected, this.env, this.validate);
     if (this.disposed) throw new Error("Muse catalog has been disposed.");
     if (this.enginePath !== selected) return this.getEnginePath();
     this.enginePath = engine;
@@ -91,7 +122,7 @@ export class CatalogService {
 
   setEnginePath(file: string): Promise<void> {
     return this.run(async () => {
-      const validated = await validateEngine(file, this.env);
+      const validated = await this.validate(file, this.env);
       await this.stopHost();
       this.enginePath = validated;
     });
@@ -115,7 +146,7 @@ export class CatalogService {
   private async ensureHost(cold = false): Promise<StdioMspHost> {
     if (cold || this.host?.isClosed) await this.stopHost();
     if (this.host) return this.host;
-    const engine = await resolveEngine(this.enginePath, this.env);
+    const engine = await resolveEngine(this.enginePath, this.env, this.validate);
     if (this.disposed) throw new Error("Muse catalog has been disposed.");
     this.enginePath = engine;
     await mkdir(this.options.storagePath, { recursive: true });
@@ -124,6 +155,7 @@ export class CatalogService {
     const host = new StdioMspHost(engine, ["serve", "--sandbox-network", "restricted", "--trust-workspace", ...(this.options.extraServeArgs ?? [])], neutral, this.env);
     this.host = host;
     this.neutralDirectory = neutral;
+    this.hostStarts++;
     try { await host.initialize(); }
     catch (error) { await this.stopHost(); throw error; }
     return host;
@@ -134,8 +166,13 @@ export class CatalogService {
     const official = await listAll(host);
     const scanned = await scanDisk(path.join(this.dataRoot, "sessions"), this.env);
     const completed = await completeRootMetadata(host, official, scanned.sessions);
-    const sessions = await buildInventoryRows(completed.roots, scanned.sessions, new Set(official.map(row => String(row.sessionId))));
-    const warnings = [...scanned.warnings, ...completed.warnings];
+    const listed = new Set(official.map(row => String(row.sessionId)));
+    const sessions = await buildInventoryRows(completed.roots, scanned.sessions, listed);
+    return this.assemble(sessions, scanned.warnings, completed.warnings);
+  }
+
+  private assemble(sessions: CatalogRow[], scanWarnings: string[], rootWarnings: string[]): CatalogInventory {
+    const warnings = [...scanWarnings, ...rootWarnings];
     const unindexedRoots = sessions.filter(row => !row.indexed && !row.parent_session_id).length;
     if (unindexedRoots) warnings.push(`${unindexedRoots} unindexed session folder(s) are shown for browsing; unreadable formats will fail explicitly on preview.`);
     return { sessions, engine_path: this.enginePath!, data_root: this.dataRoot, warnings };

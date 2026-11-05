@@ -86,6 +86,40 @@ async function verifyOwnedWorkspaceDisplay(api: any, roots: CatalogRow[], box: s
   return display;
 }
 
+/**
+ * Static sidebar: a session created by ANOTHER process does not appear (and
+ * nothing re-reads) until Refresh is pressed; after the refresh no engine
+ * process remains.
+ */
+async function verifyStaticRefresh(api: any, box: string, evidence: Record<string, unknown>): Promise<void> {
+  const extension = vscode.extensions.getExtension('AlexWonton.muse-history-sidebar')!;
+  // Keep the URL in a variable: TypeScript 7 does not rewrite identifiers inside an import() argument.
+  const fixtureUrl = pathToFileURL(join(extension.extensionPath, 'test/backend-fixture.mjs')).href;
+  const fixture = await import(fixtureUrl);
+  const config = JSON.parse(await readFile(process.env.MUSE_HISTORY_TEST_CONFIG!, 'utf8'));
+  const workspace = join(box, 'workspace-static');
+  await mkdir(workspace, { recursive: true });
+  if (!api.view.visible) {
+    const shown = event(api.view.onDidChangeVisibility, (value: vscode.TreeViewVisibilityChangeEvent) => value.visible);
+    await vscode.commands.executeCommand('workbench.view.extension.museHistory');
+    await shown;
+  }
+  await api.refresh();
+  await api.catalog.idle();
+  assert.equal(api.catalog.hostRunning, false, 'no engine process after a refresh');
+  const startsBefore = api.catalog.hostStarts;
+  const id = await fixture.createSyntheticSession({ binary: config.enginePath, workspace, env: { ...process.env, ...config.env }, extraArgs: ['--trust-workspace', '--disable-sandbox'], text: 'STATIC_REFRESH_PROMPT' }).then((session: any) => session.sessionId);
+  await new Promise(resolve => setTimeout(resolve, 8000));
+  assert.equal(api.tree.forest.treeById.has(id), false, 'nothing re-reads on its own');
+  assert.equal(api.catalog.hostStarts, startsBefore, 'no engine process was started while idle');
+  await vscode.commands.executeCommand('museHistory.refresh');
+  assert.ok(api.tree.forest.treeById.has(id), 'Refresh brings in the new session');
+  assert.match(api.tree.row(id).title, /STATIC_REFRESH_PROMPT/);
+  await api.catalog.idle();
+  assert.equal(api.catalog.hostRunning, false, 'and leaves no engine process behind');
+  evidence.staticRefresh = { sessionId: id, idleEngineStarts: 0, appearedOnlyAfterRefresh: true, engineGoneAfterRefresh: true };
+}
+
 export async function run(): Promise<void> {
   const box = process.env.MUSE_HISTORY_TEST_BOX!;
   const phase = process.env.MUSE_HISTORY_TEST_PHASE!;
@@ -154,7 +188,13 @@ export async function run(): Promise<void> {
     assert.ok(api.archives().includes(a.session_id), 'archive globalState persists across real host restarts');
     const archivedGroup = api.tree.groups.find((group: any) => group.trees.some((tree: any) => tree.row.session_id === a.session_id));
     assert.equal(archivedGroup, undefined, 'active view excludes archived root after restart');
+    assert.ok(api.archivedTree.groups.some((group: any) => group.trees.some((tree: any) => tree.row.session_id === a.session_id)), 'Archived view lists the archived root after restart');
     evidence.archivePersistence = true;
+    assert.equal(api.names()[b.session_id], 'Renamed B persists', 'display name persists across real host restarts');
+    assert.equal(api.tree.row(b.session_id).title, 'Renamed B persists');
+    await api.rename(b.session_id, '');
+    assert.equal(api.tree.row(b.session_id).original_title, undefined);
+    evidence.renamePersistence = true;
     await api.setArchived(a.session_id, false);
     await writeFile(join(box, `${phase}-evidence.json`), JSON.stringify(evidence, null, 2));
     console.log('Muse history persistence smoke passed');
@@ -215,15 +255,14 @@ export async function run(): Promise<void> {
     await shown;
     await api.refresh();
   }
-  const automaticallyRefreshed = event(api.tree.onDidChangeTreeData, () => api.tree.row(a.session_id).workspace_source === undefined);
   ta.dispose();
   await aClosed;
   const terminalCountAfterClose = vscode.window.terminals.length;
   await assert.rejects(api.terminals.open(inferred.find(row => row.session_id === a.session_id)), /terminal launch record of this extension/);
   assert.equal(vscode.window.terminals.length, terminalCountAfterClose, 'a stale inferred row cannot create a new terminal');
-  await automaticallyRefreshed;
-  assert.equal(api.tree.row(a.session_id).workspace_source, undefined, 'after close, refresh uses official metadata again');
-  evidence.ownedTerminalCloseAutomaticallyRefreshesVisibleSidebar = true;
+  await vscode.commands.executeCommand('museHistory.refresh');
+  assert.equal(api.tree.row(a.session_id).workspace_source, undefined, 'after close, a manual refresh uses official metadata again');
+  evidence.ownedTerminalCloseThenManualRefreshUsesOfficialMetadata = true;
   const reopenedEvent = resumedAfter(a.log_path, await count(a.log_path));
   const reopened = await vscode.commands.executeCommand<vscode.Terminal>('museHistory.open', a.session_id);
   assert.ok(reopened && reopened !== ta);
@@ -253,6 +292,34 @@ export async function run(): Promise<void> {
   if (child) { await api.setArchived(child.session_id, true); await api.setArchived(a.session_id, false); assert.ok(api.archives().includes(child.session_id)); await api.setArchived(a.session_id, true); }
   const originalRecycle = api.catalog.recycle;
   await api.setArchived(b.session_id, true);
+  // Archived view: archived sessions are listed there directly and open like any other row.
+  const archivedNode = api.archivedTree.getChildren().flatMap((folder: any) => api.archivedTree.getChildren(folder)).find((node: any) => node.tree.row.session_id === b.session_id);
+  assert.ok(archivedNode, 'Archived view lists archived root B');
+  assert.equal(api.tree.groups.some((group: any) => group.trees.some((tree: any) => tree.row.session_id === b.session_id)), false, 'History (unarchived) hides B');
+  const archivedItem = api.archivedTree.getTreeItem(archivedNode);
+  assert.equal(archivedItem.command.command, 'museHistory.open');
+  assert.equal(await vscode.commands.executeCommand<vscode.Terminal>(archivedItem.command.command, ...archivedItem.command.arguments), tb, 'clicking B in Archived switches to its live terminal');
+  assert.match(String(archivedItem.contextValue), /selfArchived/);
+  evidence.archivedViewDirectAccess = true;
+  // Rename: local display name, searchable by both names, restorable, independent of the engine title.
+  const engineTitleB = api.tree.row(b.session_id).title;
+  assert.equal(await api.rename(b.session_id, '  Renamed   B persists '), 'Renamed B persists');
+  assert.equal(api.tree.row(b.session_id).title, 'Renamed B persists');
+  assert.equal(api.tree.row(b.session_id).original_title, engineTitleB);
+  assert.equal(api.archivedTree.row(b.session_id).title, 'Renamed B persists', 'Archived view shows the display name');
+  api.archivedTree.query = 'renamed b';
+  api.archivedTree.update();
+  assert.equal(api.archivedTree.groups.length, 1, 'search finds the display name');
+  api.archivedTree.query = engineTitleB;
+  api.archivedTree.update();
+  assert.equal(api.archivedTree.groups.length, 1, 'search still finds the engine title');
+  api.archivedTree.query = '';
+  api.archivedTree.update();
+  assert.match(String(api.archivedTree.getTreeItem({ type: 'session', tree: api.archivedTree.forest.treeById.get(b.session_id) }).tooltip), /Muse title:/);
+  await api.rename(a.session_id, 'Temporary A');
+  await api.rename(a.session_id, '');
+  assert.equal(api.tree.row(a.session_id).original_title, undefined, 'empty name restores the engine title');
+  evidence.rename = { engineTitleB, displayName: api.tree.row(b.session_id).title };
   const originalArchives = [...api.archives()];
   api.catalog.recycle = async () => ({ status: 'partial', message: 'Synthetic cold verification partial', recycled_session_ids: [b.session_id] });
   // Close owned synthetic terminals before mutation fixture; sentinel is deliberately untouched.
@@ -262,6 +329,7 @@ export async function run(): Promise<void> {
   api.catalog.recycle = originalRecycle;
   assert.ok(vscode.window.terminals.includes(sentinel));
   evidence.partialKeepsArchives = true;
+  await verifyStaticRefresh(api, box, evidence);
   sentinel.dispose();
   for (const preview of api.previews.values()) preview.panel.dispose();
   await writeFile(join(box, `${phase}-evidence.json`), JSON.stringify(evidence, null, 2));

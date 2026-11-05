@@ -88,7 +88,7 @@ export class StdioMspHost {
   }
 
   async initialize(): Promise<void> {
-    validateInitialize(await this.request("initialize", { clientInfo: { name: "muse_history_sidebar", version: "0.1.0" } }));
+    validateInitialize(await this.request("initialize", { clientInfo: { name: "muse_history_sidebar", version: "0.2.0" } }));
     this.child.stdin.write(`${JSON.stringify({ jsonrpc: "2.0", method: "initialized", params: {} })}\n`);
   }
 

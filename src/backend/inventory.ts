@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import type { Dirent } from "node:fs";
 import { lstat, readdir } from "node:fs/promises";
 import path from "node:path";
 import type { CatalogRow } from "../shared/sessionCatalog";
@@ -37,73 +37,51 @@ export async function listAll(host: StdioMspHost): Promise<Record<string, unknow
   return rows;
 }
 
-// Node does not expose arbitrary Windows reparse attributes. One metadata-only
-// OS walk checks the attribute on EVERY directory/file, including unknown tags.
-// Input travels in an environment variable, never interpolated into shell code.
-const windowsScan = String.raw`
-$ErrorActionPreference = 'Stop'
-[Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false)
-$rows = [System.Collections.Generic.List[object]]::new()
-$warnings = [System.Collections.Generic.List[string]]::new()
-function Walk([string]$directory, [AllowNull()][string]$parentSession) {
-  try {
-    $dir = Get-Item -LiteralPath $directory -Force
-    if (($dir.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or -not $dir.PSIsContainer) { return }
-    $entries = @(Get-ChildItem -LiteralPath $directory -Force)
-    $log = $entries | Where-Object { $_.Name -ieq 'session.jsonl' -and -not $_.PSIsContainer -and ($_.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0 } | Select-Object -First 1
-    if ($null -ne $log) {
-      $rows.Add([pscustomobject]@{ directory=$dir.FullName; parent_directory=$parentSession; created_at=$log.CreationTimeUtc.ToString('o'); updated_at=$log.LastWriteTimeUtc.ToString('o'); log_bytes=$log.Length })
-      $parentSession = $dir.FullName
-    }
-    foreach ($entry in $entries) {
-      if ($entry.PSIsContainer -and ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint) -eq 0) { Walk $entry.FullName $parentSession }
-    }
-  } catch { $warnings.Add("Cannot scan directory $directory : $($_.Exception.Message)") }
-}
-if (Test-Path -LiteralPath $env:MUSE_HISTORY_SCAN_ROOT -PathType Container) { Walk $env:MUSE_HISTORY_SCAN_ROOT $null }
-else { $warnings.Add("No sessions directory at $env:MUSE_HISTORY_SCAN_ROOT") }
-[pscustomobject]@{ sessions=@($rows.ToArray()); warnings=@($warnings.ToArray()) } | ConvertTo-Json -Depth 5 -Compress
-`;
-
-export async function scanDisk(root: string, env: NodeJS.ProcessEnv): Promise<{ sessions: DiskSession[]; warnings: string[] }> {
-  if (process.platform === "win32") {
-    const systemRoot = env.SystemRoot ?? env.SYSTEMROOT;
-    if (!systemRoot) throw new Error("SystemRoot is required for the Windows metadata scanner.");
-    const output = await new Promise<string>((resolve, reject) => {
-      execFile(path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe"),
-        ["-NoProfile", "-NonInteractive", "-EncodedCommand", Buffer.from(windowsScan, "utf16le").toString("base64")],
-        { env: { ...env, MUSE_HISTORY_SCAN_ROOT: root }, windowsHide: true, maxBuffer: 64 * 1024 * 1024 },
-        (error, stdout) => error ? reject(error) : resolve(stdout));
-    });
-    const result = objectValue(JSON.parse(output.replace(/^\uFEFF/, "")), "Windows metadata scan");
-    if (!Array.isArray(result.sessions) || !Array.isArray(result.warnings)) throw new Error("Invalid Windows metadata scanner output.");
-    const sessions = result.sessions.map(raw => {
-      const row = objectValue(raw, "disk metadata row");
-      if (typeof row.directory !== "string" || (row.parent_directory !== null && typeof row.parent_directory !== "string") ||
-        typeof row.created_at !== "string" || typeof row.updated_at !== "string" || typeof row.log_bytes !== "number") throw new Error("Invalid disk metadata fields.");
-      return { ...row, parent_directory: row.parent_directory === "" ? null : row.parent_directory } as unknown as DiskSession;
-    });
-    if (!result.warnings.every(warning => typeof warning === "string")) throw new Error("Invalid scanner warning.");
-    return { sessions, warnings: result.warnings as string[] };
-  }
+/**
+ * Metadata-only walk of the sessions root. Directory entries come from one
+ * readdir per directory; on Windows libuv types EVERY reparse point (junction,
+ * symlink, cloud placeholder or unknown tag) as a link entry, never as a
+ * directory or file, so reparse points are never followed or counted. The root
+ * itself is classified through its parent's directory listing for the same
+ * reason. Unreadable directories become warnings and the walk continues.
+ * Parents are always emitted before their descendants.
+ */
+export async function scanDisk(root: string, _env?: NodeJS.ProcessEnv): Promise<{ sessions: DiskSession[]; warnings: string[] }> {
   const sessions: DiskSession[] = [];
   const warnings: string[] = [];
-  const walk = async (directory: string, parent: string | null): Promise<void> => {
-    const metadata = await lstat(directory);
-    if (metadata.isSymbolicLink() || !metadata.isDirectory()) return;
-    const entries = await readdir(directory, { withFileTypes: true });
-    if (entries.some(entry => entry.isFile() && entry.name === "session.jsonl")) {
-      const log = await lstat(path.join(directory, "session.jsonl"));
-      sessions.push({ directory, parent_directory: parent, created_at: log.birthtime.toISOString(), updated_at: log.mtime.toISOString(), log_bytes: log.size });
-      parent = directory;
-    }
-    for (const entry of entries) if (entry.isDirectory() && !entry.isSymbolicLink()) await walk(path.join(directory, entry.name), parent);
-  };
-  try { await walk(root, null); }
-  catch (error) {
-    if ((error as NodeJS.ErrnoException).code === "ENOENT") warnings.push(`No sessions directory at ${root}`);
-    else throw error;
+  const absolute = path.resolve(root);
+  let rootEntry: Dirent | undefined;
+  try {
+    const parent = path.dirname(absolute);
+    const name = path.basename(absolute).toLowerCase();
+    rootEntry = (await readdir(parent, { withFileTypes: true })).find(entry => entry.name.toLowerCase() === name);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
   }
+  if (!rootEntry || !rootEntry.isDirectory()) {
+    warnings.push(rootEntry ? `Sessions root is not a plain directory (reparse points are never followed): ${absolute}` : `No sessions directory at ${absolute}`);
+    return { sessions, warnings };
+  }
+  const walk = async (directory: string, parent: string | null): Promise<void> => {
+    let entries: Dirent[];
+    try { entries = await readdir(directory, { withFileTypes: true }); }
+    catch (error) { warnings.push(`Cannot scan directory ${directory} : ${(error as Error).message}`); return; }
+    const log = entries.find(entry => entry.isFile() && entry.name.toLowerCase() === "session.jsonl");
+    if (log) {
+      try {
+        const metadata = await lstat(path.join(directory, log.name));
+        if (metadata.isFile()) {
+          sessions.push({ directory, parent_directory: parent, created_at: metadata.birthtime.toISOString(), updated_at: metadata.mtime.toISOString(), log_bytes: metadata.size });
+          parent = directory;
+        }
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") warnings.push(`Cannot read session log metadata in ${directory} : ${(error as Error).message}`);
+      }
+    }
+    entries.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+    for (const entry of entries) if (entry.isDirectory()) await walk(path.join(directory, entry.name), parent);
+  };
+  await walk(absolute, null);
   return { sessions, warnings };
 }
 

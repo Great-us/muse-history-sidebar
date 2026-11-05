@@ -5,12 +5,14 @@
 Unofficial community VS Code extension for browsing and managing local Muse conversation history by workspace folder. This project is independently maintained and is not an official extension from the engine vendor.
 
 - Workspace folders, parent/child conversations, title/path search and paginated read-only previews.
+- Static list, refreshed only when you press Refresh; no background watcher, timer or resident engine process.
+- Rename (F2) with an extension-owned display name, and a dedicated **Archived** view for direct access to archived sessions.
 - Archive management and recoverable removal; each engine's different recovery behavior is explained below.
 - Resume a main conversation in its original working directory and switch back to its verified terminal.
 - Windows x64; VS Code 1.144.0 or later. Validated with Muse Code 1.4.14. The engine must be installed separately.
 - Preview does not fetch remote transcript images or links. No conversation data, account credentials, or recovery backups are included in this repository.
 
-Since 0.1.2 the extension UI and Marketplace listing are English; this README keeps full English and Chinese guides.
+0.2.0 adds rename, the Archived view and a static, refresh-on-demand list with no resident processes. Since 0.1.2 the extension UI and Marketplace listing are English; this README keeps full English and Chinese guides.
 
 Install the Windows VSIX from [GitHub Releases](https://github.com/Great-us/muse-history-sidebar/releases). The publisher ID is `AlexWonton`.
 
@@ -22,8 +24,11 @@ After installing the VSIX, click the **Muse History** icon on the left side of V
 
 - Expand a folder and click a main conversation to open a Muse integrated terminal in its original working directory. Clicking again switches back to that terminal; clicking another main conversation opens or switches to another terminal.
 - Internal sub-agent records open a read-only preview when clicked; the context menu offers **Open Parent Main Session Terminal** explicitly. The current Muse engine does not support resuming these internal records directly.
-- Right-click a conversation to preview, archive, remove its independent archive flag, or move it to the Windows Recycle Bin. Recycling a parent record includes the child records inside its on-disk directory; the UI confirms the scope first. Terminals still open for that scope must be closed first.
-- The toolbar provides refresh, title/folder search, an archive filter and engine selection. History is re-read on startup, when the sidebar becomes visible again, and when the VS Code window regains focus; you can also refresh manually. Previews load page by page and can be paged to the very end.
+- Right-click a conversation to preview, rename (also F2), restore its original title, archive, remove its independent archive flag, or move it to the Windows Recycle Bin. Recycling a parent record includes the child records inside its on-disk directory; the UI confirms the scope first. Terminals still open for that scope must be closed first.
+- **Rename** stores a display name in this extension. Muse 1.4.14 answers `session/rename` with "not supported on this platform" on Windows, so the name is not written into Muse: Muse Desktop and `resume` keep the original title. The sidebar, previews and new terminal titles show the display name, search matches both names, and the tooltip keeps the original Muse title. An empty name or **Restore Original Title** removes it.
+- The **Archived** view below History lists every archived session (with its own search). Click a main conversation there to open or switch to its terminal, exactly as in History; right-click to preview, rename, unarchive or recycle.
+- The toolbar provides refresh, title/folder search, an archive filter and engine selection. The list is **static**: history is re-read only when you press **Refresh** (or run an action that needs the engine, such as Move to Recycle Bin), and the header shows when it was last refreshed. Nothing re-reads automatically — not on focus, not when the sidebar is shown, not after a terminal closes. Previews load page by page and can be paged to the very end.
+- **Resource use.** Between refreshes the extension runs nothing: no file watcher, no timer, no engine process. Each refresh or preview page starts the Muse engine host and stops it (and removes its temporary folder) as soon as the read finishes. The result of the last refresh is saved as a small JSON snapshot in the extension's storage, so a new VS Code window shows it without starting any process; only a first-ever start reads once. The engine is validated once per executable version. Previews load the Markdown renderer on first use, render only new entries on "Load more", and release their page when the tab is hidden.
 
 Archiving is view state owned by this extension, independent of Muse Desktop. Moving to the Recycle Bin moves the real local session directory and can be undone from the Windows Recycle Bin; this extension never permanently deletes anything or empties the bin. After restoring, refresh the sidebar to rediscover the session.
 
@@ -36,7 +41,7 @@ Since 0.1.1: while Muse is running it may temporarily withhold session directori
 In the VS Code Extensions menu choose **Install from VSIX…** and select the delivered `.vsix`. The official CLI also works:
 
 ```powershell
-code --install-extension .\muse-history-sidebar-0.1.3-win32-x64.vsix
+code --install-extension .\muse-history-sidebar-0.2.0-win32-x64.vsix
 ```
 
 The engine is discovered automatically from the local Muse installation and PATH. When discovery fails, click the gear in the sidebar and select the native Muse `.exe`. The setting is `museHistory.enginePath`, machine-scoped. Remote VS Code windows do not start local Muse sessions; use terminal features in a local, trusted workspace.
@@ -57,7 +62,7 @@ npm test
 npm run package
 ```
 
-The default build output is `muse-history-sidebar-win32-x64-0.1.3.vsix`. Dependency versions are pinned by `package-lock.json`. `src/backend` uses Muse's official MSP interface and file metadata, `src/ui` provides the tree, preview and terminals, and `native-recycle` is the Windows recycle helper source. Packaging uses `MARKETPLACE.md` as the store README via `vsce package --readme-path MARKETPLACE.md`; this bilingual source README is excluded from the VSIX.
+The default build output is `muse-history-sidebar-win32-x64-0.2.0.vsix`. Dependency versions are pinned by `package-lock.json`. `src/backend` uses Muse's official MSP interface and file metadata, `src/ui` provides the tree, preview and terminals, and `native-recycle` is the Windows recycle helper source. Packaging uses `MARKETPLACE.md` as the store README via `vsce package --readme-path MARKETPLACE.md`; this bilingual source README is excluded from the VSIX.
 
 To rebuild the helper, install the Rust MSVC toolchain and Visual Studio C++ Build Tools, then run:
 
@@ -90,6 +95,8 @@ The store version uses the `AlexWonton` publisher, a different extension ID from
 按原工作文件夹管理这台电脑上的 Muse Code 对话。非官方社区扩展 `AlexWonton.muse-history-sidebar`，独立维护，与引擎厂商无关；适用于 Windows x64、VS Code 1.144.0 及以上；已用 Muse Code 1.4.14 验证。0.1.2 起扩展界面与商店页面为英文；本 README 保留完整中英文指南。原 Muse Desktop 可继续使用。
 
 - 工作文件夹分组、父子对话、标题/路径搜索与分页只读预览。
+- 静态列表：只在点“刷新”时读取；后台没有监听、定时器或常驻引擎进程。
+- 重命名（F2，本扩展保存的显示名称），以及独立的 **Archived**（已归档）视图，可直接访问已归档会话。
 - 归档管理与可恢复移除；各引擎恢复行为的差异见下文。
 - 在原工作目录恢复主对话，并切回其已验证的终端。
 - 预览不抓取远端对话图片或链接。本仓库不含对话数据、账号凭据或恢复备份。
@@ -100,8 +107,11 @@ The store version uses the `AlexWonton` publisher, a different extension ID from
 
 - 展开文件夹，点击主对话，在其原工作目录打开 Muse 集成终端。再次点击会切回该终端；点击其他主对话会打开或切到另一终端。
 - 内部子智能体记录点击后只读预览；右键可明确选择 **Open Parent Main Session Terminal**（打开父主会话终端）。当前 Muse 引擎不支持直接恢复这些内部记录。
-- 右键对话可预览、归档、移除独立归档标记（Remove Independent Archive），或移到 Windows 回收站（Move to System Recycle Bin）。回收一个父记录会包含其磁盘目录内的子记录；界面会先确认范围。打开中的对应终端需先关闭。
-- 顶部按钮提供刷新、标题/文件夹搜索、归档筛选和引擎选择。每次启动、重新显示侧边栏、切回可见的 VS Code 窗口时重新读取当前历史；也可手动刷新。预览按页加载，可一直加载至末尾。
+- 右键对话可预览、重命名（Rename…，也可按 F2）、恢复原标题（Restore Original Title）、归档、移除独立归档标记（Remove Independent Archive），或移到 Windows 回收站（Move to System Recycle Bin）。回收一个父记录会包含其磁盘目录内的子记录；界面会先确认范围。打开中的对应终端需先关闭。
+- **重命名**保存的是本扩展的显示名称。Muse 1.4.14 在 Windows 上对 `session/rename` 返回“not supported on this platform”，因此名称不会写进 Muse：Muse Desktop 和 `resume` 仍显示原标题。侧栏、预览和新开终端的标题使用显示名称，搜索同时匹配两个名称，悬停提示保留 Muse 原标题。名称留空或选“恢复原标题”即可清除。
+- History 下方的 **Archived**（已归档）视图列出全部已归档会话（有独立搜索）。在其中点击主对话即可打开或切回其终端，与 History 中一致；右键可预览、重命名、取消归档或移到回收站。
+- 顶部按钮提供刷新、标题/文件夹搜索、归档筛选和引擎选择。列表是**静态**的：只有点“刷新”（或执行需要引擎的操作，如移到回收站）时才重新读取，标题栏显示上次刷新时间。不会自动重读——切回窗口、显示侧栏、关闭终端都不会触发。预览按页加载，可一直加载至末尾。
+- **资源占用**：两次刷新之间扩展什么都不运行：没有文件监听、没有定时器、没有引擎进程。每次刷新或预览翻页都会启动 Muse 引擎，读完立即停止并删除其临时文件夹。上次刷新的结果以小型 JSON 快照保存在扩展存储中，新开 VS Code 窗口直接显示快照，不启动任何进程；只有首次使用（还没有快照）时会读取一次。引擎每个可执行版本只校验一次；预览首次打开才加载 Markdown 渲染器，“加载更多”只渲染新内容，预览标签页隐藏时释放页面。
 
 归档是本扩展自己的视图状态，独立于 Muse Desktop。移到回收站会通过原生助手移动真实的本机会话目录，可通过 Windows 回收站恢复；本扩展不会永久删除或清空回收站。恢复后刷新侧边栏即可重新发现。
 
@@ -114,7 +124,7 @@ The store version uses the `AlexWonton` publisher, a different extension ID from
 在 VS Code 扩展菜单选择 **Install from VSIX… / 从 VSIX 安装…**，选中交付的 `.vsix`。也可使用官方 CLI：
 
 ```powershell
-code --install-extension .\muse-history-sidebar-0.1.3-win32-x64.vsix
+code --install-extension .\muse-history-sidebar-0.2.0-win32-x64.vsix
 ```
 
 引擎默认从本机 Muse 安装和 PATH 中发现。找不到时，点击侧边栏齿轮，选择 Muse 原生 `.exe`。设置项为 `museHistory.enginePath`，仅作用于本机。远程 VS Code 窗口不启动本机 Muse 会话；在本机受信任工作区使用终端功能。
@@ -135,7 +145,7 @@ npm test
 npm run package
 ```
 
-默认构建产物为 `muse-history-sidebar-win32-x64-0.1.3.vsix`。依赖版本由 `package-lock.json` 锁定。`src/backend` 使用 Muse 官方 MSP 接口和文件元数据，`src/ui` 提供树、预览和终端，`native-recycle` 是 Windows 回收助手源码。打包通过 `vsce package --readme-path MARKETPLACE.md` 以 `MARKETPLACE.md` 作为商店 README；本双语言源码 README 不会进入 VSIX。
+默认构建产物为 `muse-history-sidebar-win32-x64-0.2.0.vsix`。依赖版本由 `package-lock.json` 锁定。`src/backend` 使用 Muse 官方 MSP 接口和文件元数据，`src/ui` 提供树、预览和终端，`native-recycle` 是 Windows 回收助手源码。打包通过 `vsce package --readme-path MARKETPLACE.md` 以 `MARKETPLACE.md` 作为商店 README；本双语言源码 README 不会进入 VSIX。
 
 如需重新构建助手，先安装 Rust MSVC 工具链和 Visual Studio C++ Build Tools，再运行：
 
